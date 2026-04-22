@@ -1,0 +1,10 @@
+- Renommer le site "Stock or Stone" donc sans le s, mettre une même police unie et stylysée sobre pour les deux et adapter les logos des sites dont la modale
+- Changer la modale d'introduction pour remettre la somme que l'on est prêt à investir et non pas le montant du bien immobilier puisque à ce stade on ne sait pas si c'est immobilier ou bourse, adapter les libéléés
+- revoir mieux le mode avancer pour bien différencier visuelle et remettre bandeau coloré en haut, ça aidait à bien voir le modeet changer légèrement certaines couleurs ou bordures comme pour l'entête ou les menus qu'on comprenne bien qu'on est en avancé 
+- Dans le mode avancé on devrait voir les mêmes graph, pas des différents, par exemple dans "je loue mon bien" le graph du mode avancé est plus utile que celui du mode débutant, c'est lui qu'on devrait voir uniquement dans les deux.
+- Modale d’intro à revoir : ne pas mettre l'horizon de temps ou alors commencer à afficher déjà des réultats qui comparent uniquement bourse et résidence principale puis changer le bouton quelque chose qui correspond mieux comme "Voir plus de détails". 
+- On a mis les chiffres réalistes donc laissons réalistes sur la bourse aussi avec le vrai S&P500 historique ou VEQT historique sauf si tu me dis l'inverse, mais j'ai peur qu'on ne soit pas équitables dans les comparaisons sinon. 
+- La section meilleure stratégie avec ces résultats devrait être dans un léger encadré aux bord arrondis qui respecte le style du site 
+- Cliquer sur le titre du site ou son logo devrait ré-ouvrir la modale d'introduction 
+- Revoit le logo du site en t'inspirant du fichier logo.jfif
+- Finaliser le dark mode et mettre un noir un poil moins sombre 

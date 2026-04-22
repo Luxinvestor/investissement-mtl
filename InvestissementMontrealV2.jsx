@@ -1,0 +1,1259 @@
+import React, { useState, useMemo } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
+
+/* ============================================================
+   SOURCES CENTRALISÉES
+   ============================================================ */
+const SOURCES = {
+  apprecImmo: {
+    label: 'APCIQ / Centris – prix médian condo Montréal +46 % en 5 ans (2020-2025), +5 % en 2025',
+    url: 'https://www.lapresse.ca/affaires/marche-immobilier/2026-01-14/rapport-de-l-apciq/les-prix-des-proprietes-ont-explose-de-67-en-cinq-ans.php',
+    note: 'Projection long terme ~3-4 %/an après période de hausse exceptionnelle'
+  },
+  loyerMtl: {
+    label: 'SCHL / Statistique Canada – loyer moyen 2 ch Montréal +7,2 % en 2025, +6,3 % en 2024',
+    url: 'https://www.cmhc-schl.gc.ca/professionals/housing-markets-data-and-research/market-reports/rental-market-reports-major-centres',
+    note: 'Loyer moyen 2-ch Montréal RMR : 1 346 $ en 2025'
+  },
+  talAjustement: {
+    label: 'TAL – ajustement moyen 2024 : ~4 % (varie 3-6 % selon composantes)',
+    url: 'https://www.tal.gouv.qc.ca/fr/actualites/detail?code=le-calcul-de-l-ajustement-des-loyers-en-2025',
+    note: 'Augmentation légale encadrée mais non plafonnée'
+  },
+  assurance: {
+    label: 'Bureau d\'assurance du Canada / Applied Rating Index – assurance habitation +7,3 % en 2024, +5,3 % en 2025',
+    url: 'https://www.ledevoir.com/economie/956412/assureurs-habitation-augmentent-tarifs-reduisent-couverture',
+    note: 'Coût d\'assurance habitation au Québec a augmenté de 31 % entre 2021-2025 selon Statistique Canada'
+  },
+  taxesMunicipales: {
+    label: 'Calcul Conversion – taxes municipales et scolaires Québec',
+    url: 'https://www.calculconversion.com/calcul-taxes-municipales.html',
+    note: 'Augmentation historique ~2-4 %/an alignée à la valeur foncière'
+  },
+  tmi2026: {
+    label: 'Revenu Québec + ARC – paliers d\'imposition combinés 2026',
+    url: 'https://cffp.recherche.usherbrooke.ca/outils-ressources/guide-mesures-fiscales/bareme-imposition-particuliers/',
+    note: 'Taux combinés 25,69 % à 53,31 % pour résidents du Québec'
+  },
+  celi2026: {
+    label: 'ARC – plafond CELI cumulatif 109 000 $ en 2026 (pour quelqu\'un admissible depuis 2009)',
+    url: 'https://www.desjardins.com/fr/epargne-placements/regimes-epargne/celi.html',
+    note: 'Plafond annuel 2026 : 7 000 $'
+  },
+  reer2026: {
+    label: 'ARC – plafond REER 2026 : 33 810 $ ou 18 % du revenu gagné',
+    url: 'https://www.td.com/ca/fr/services-bancaires-personnels/placements-personnels/apprendre/regles-plafond-cotisation-reer',
+    note: 'Le moindre des deux montants'
+  },
+  sp500: {
+    label: 'S&P 500 – rendement annualisé nominal ~9-10 % sur 30 ans',
+    url: 'https://www.officialdata.org/us/stocks/s-p-500/1994',
+    note: 'Nous utilisons 8 % par prudence; réel (ajusté inflation) ~6-7 %'
+  },
+  gainCapital: {
+    label: 'ARC – taux d\'inclusion du gain en capital : 50 % (annulation de la hausse à 66,67 %)',
+    url: 'https://cffp.recherche.usherbrooke.ca/outils-ressources/guide-mesures-fiscales/bareme-imposition-particuliers/',
+    note: 'Résidence principale : exemption totale'
+  },
+};
+
+/* ============================================================
+   PALIERS D'IMPOSITION COMBINÉS QUÉBEC 2026
+   Source : CFFP / Revenu Québec / ARC
+   ============================================================ */
+const TRANCHES_2026 = [
+  { min: 0, max: 17183, taux: 0 },
+  { min: 17183, max: 53255, taux: 0.2569 },
+  { min: 53255, max: 57375, taux: 0.3253 },
+  { min: 57375, max: 106495, taux: 0.3712 },
+  { min: 106495, max: 114750, taux: 0.4170 },
+  { min: 114750, max: 129590, taux: 0.4671 },
+  { min: 129590, max: 158519, taux: 0.4812 },
+  { min: 158519, max: 258482, taux: 0.5097 },
+  { min: 258482, max: Infinity, taux: 0.5331 },
+];
+
+function tmiPourRevenu(revenu) {
+  // TMI = taux marginal sur le prochain dollar gagné
+  for (let i = TRANCHES_2026.length - 1; i >= 0; i--) {
+    if (revenu > TRANCHES_2026[i].min) return TRANCHES_2026[i].taux;
+  }
+  return 0;
+}
+
+function impotTotal(revenu) {
+  let impot = 0;
+  for (const t of TRANCHES_2026) {
+    if (revenu <= t.min) break;
+    const tranche = Math.min(revenu, t.max) - t.min;
+    impot += tranche * t.taux;
+  }
+  return impot;
+}
+
+/* ============================================================
+   CALCUL CUMULATIF DES DROITS CELI
+   ============================================================ */
+const PLAFONDS_CELI_HISTORIQUES = {
+  2009: 5000, 2010: 5000, 2011: 5000, 2012: 5000,
+  2013: 5500, 2014: 5500,
+  2015: 10000,
+  2016: 5500, 2017: 5500, 2018: 5500,
+  2019: 6000, 2020: 6000, 2021: 6000, 2022: 6000,
+  2023: 6500, 2024: 7000, 2025: 7000, 2026: 7000,
+};
+
+function droitsCeliCumulatifs(anneeArrivee, anneeCourante = 2026) {
+  const debut = Math.max(2009, anneeArrivee);
+  let total = 0;
+  for (let an = debut; an <= anneeCourante; an++) {
+    total += PLAFONDS_CELI_HISTORIQUES[an] || 7000;
+  }
+  return total;
+}
+
+/* ============================================================
+   CALCUL PRINCIPAL
+   ============================================================ */
+function computeScenarios(h) {
+  const {
+    prix, miseFondsPct, tauxHypo, amortissement, apprec, horizon,
+    notaire, inspection, divers,
+    condoMens, assurMens, entretienPct, inflationCouts, inflationAssur,
+    commVente, fraisJurVente,
+    loyerInitial, augmLoyer, assurLoc,
+    rendement, celiDisponible, reerDisponibleInitial,
+    salaireActuel, ageActuel, ageRetraite, revenuRetraiteEstime,
+    inclusionGainCap,
+    miseFondsLocPct, tauxHypoLoc, loyerPercuInitial, vacancePct, gestionPct,
+    nbLogementsLoues, // pour duplex/triplex
+    // stress tests
+    stressAppliquer, stressAnnee, stressImmo, stressBourse, stressTauxRenouv,
+    // inflation générale (pour dollars réels)
+    inflationGen,
+  } = h;
+
+  // TMI dynamique selon salaire
+  const tmiActuel = tmiPourRevenu(salaireActuel);
+  const tmiRetraite = tmiPourRevenu(revenuRetraiteEstime);
+
+  // --- Frais fixes Montréal (Québec) ---
+  const taxeBienvenue = prix <= 58900
+    ? prix * 0.005
+    : prix <= 294600
+      ? 58900 * 0.005 + (prix - 58900) * 0.01
+      : 58900 * 0.005 + (294600 - 58900) * 0.01 + (prix - 294600) * 0.015;
+  const taxeScolaireAn = (prix - 25000) * (0.09152 / 100);
+  const taxeMuniAn = (0.65 / 100 * prix) + 100;
+
+  // ================ RÉSIDENCE PRINCIPALE ================
+  const miseFonds = prix * miseFondsPct;
+  const emprunt = prix - miseFonds;
+  const rMens = tauxHypo / 12;
+  const nMens = amortissement * 12;
+  const versementMens = rMens * emprunt / (1 - Math.pow(1 + rMens, -nMens));
+  const coutInitialRP = miseFonds + notaire + inspection + taxeBienvenue + divers;
+
+  let soldeRP = emprunt, interetsCumRP = 0, coutsRecCumRP = 0;
+  let valeurRP = prix;
+  const tsRP = [];
+  let tauxHypoEffectif = tauxHypo;
+
+  for (let y = 1; y <= horizon; y++) {
+    // Stress tests
+    if (stressAppliquer && y === stressAnnee) {
+      valeurRP *= (1 + stressImmo);
+    }
+    if (stressAppliquer && y === 5) {
+      tauxHypoEffectif = stressTauxRenouv;
+    }
+    const rMensEff = tauxHypoEffectif / 12;
+
+    const valDebut = valeurRP;
+    valeurRP = valDebut * (1 + apprec);
+    const soldeDebut = soldeRP;
+    const soldeFin = y <= amortissement
+      ? Math.max(0, soldeDebut * Math.pow(1 + rMensEff, 12) - versementMens * (Math.pow(1 + rMensEff, 12) - 1) / rMensEff)
+      : 0;
+    const capital = soldeDebut - soldeFin;
+    const verseAnnuel = y <= amortissement ? versementMens * 12 : 0;
+    const interets = verseAnnuel - capital;
+    // Coûts récurrents avec inflation différenciée
+    const condoAn = condoMens * 12 * Math.pow(1 + inflationCouts, y - 1);
+    const assurAn = assurMens * 12 * Math.pow(1 + inflationAssur, y - 1);
+    const taxeMuniAnY = taxeMuniAn * Math.pow(1 + inflationCouts, y - 1);
+    const taxeScolaireAnY = taxeScolaireAn * Math.pow(1 + inflationCouts, y - 1);
+    const entretienAn = valDebut * entretienPct;
+    const coutsRec = condoAn + assurAn + taxeMuniAnY + taxeScolaireAnY + entretienAn;
+
+    soldeRP = soldeFin;
+    interetsCumRP += interets;
+    coutsRecCumRP += coutsRec;
+    tsRP.push({
+      annee: y,
+      valeurBien: Math.round(valeurRP),
+      soldeHypo: Math.round(soldeFin),
+      equite: Math.round(valeurRP - soldeFin),
+      capital: Math.round(capital),
+      interets: Math.round(interets),
+      coutsRec: Math.round(coutsRec),
+      verseAnnuel: Math.round(verseAnnuel),
+    });
+  }
+  const valeurFinaleRP = valeurRP;
+  const commissionRP = valeurFinaleRP * commVente;
+  const gainBrutRP = valeurFinaleRP - soldeRP - commissionRP - fraisJurVente;
+  const beneficeNetRP = gainBrutRP - coutInitialRP - interetsCumRP - coutsRecCumRP;
+
+  // ================ DUPLEX (vit + loue) ================
+  // L'utilisateur habite dans 1 logement et loue les autres
+  // Taxe basée sur le prix total, hypothèse résidence principale sur la portion occupée
+  const prixDuplex = prix * (1 + 0.8 * nbLogementsLoues); // chaque logement loué ajoute 80 % du prix initial
+  const miseFondsDuplex = prixDuplex * miseFondsPct;
+  const empruntDuplex = prixDuplex - miseFondsDuplex;
+  const versementMensDuplex = rMens * empruntDuplex / (1 - Math.pow(1 + rMens, -nMens));
+  const taxeBienvenueDuplex = prixDuplex <= 58900
+    ? prixDuplex * 0.005
+    : prixDuplex <= 294600
+      ? 58900 * 0.005 + (prixDuplex - 58900) * 0.01
+      : 58900 * 0.005 + (294600 - 58900) * 0.01 + (prixDuplex - 294600) * 0.015;
+  const coutInitialDuplex = miseFondsDuplex + notaire + inspection + taxeBienvenueDuplex + divers;
+
+  let soldeDuplex = empruntDuplex, valeurDuplex = prixDuplex;
+  let cashflowCumDuplex = 0, interetsCumDuplex = 0, coutsRecCumDuplex = 0;
+  const tsDuplex = [];
+  const portionLocative = nbLogementsLoues / (nbLogementsLoues + 1); // part locative
+
+  for (let y = 1; y <= horizon; y++) {
+    const valDebut = valeurDuplex;
+    valeurDuplex = valDebut * (1 + apprec);
+    const soldeDebut = soldeDuplex;
+    const soldeFin = y <= amortissement
+      ? Math.max(0, soldeDebut * Math.pow(1 + rMens, 12) - versementMensDuplex * (Math.pow(1 + rMens, 12) - 1) / rMens)
+      : 0;
+    const capital = soldeDebut - soldeFin;
+    const verseAnnuel = y <= amortissement ? versementMensDuplex * 12 : 0;
+    const interets = verseAnnuel - capital;
+
+    // Coûts récurrents totaux (immeuble)
+    const coutsImmeuble = (condoMens * 12 + assurMens * 12 * 1.3 + taxeMuniAn * (prixDuplex / prix) + taxeScolaireAn * (prixDuplex / prix) + valDebut * entretienPct) * Math.pow(1 + inflationCouts, y - 1);
+
+    // Revenus locatifs (sur les logements loués)
+    const loyerBrut = loyerPercuInitial * 12 * nbLogementsLoues * Math.pow(1 + augmLoyer, y - 1);
+    const loyerEffectif = loyerBrut * (1 - vacancePct) * (1 - gestionPct);
+
+    // Impôt sur revenu net locatif (portion dépenses attribuée aux logements loués)
+    const interetsLocatifs = interets * portionLocative;
+    const coutsLocatifs = coutsImmeuble * portionLocative;
+    const revenuNetImposable = loyerEffectif - interetsLocatifs - coutsLocatifs;
+    const impot = Math.max(0, revenuNetImposable * tmiActuel);
+
+    const cashflow = loyerEffectif - verseAnnuel - coutsImmeuble - impot;
+
+    soldeDuplex = soldeFin;
+    cashflowCumDuplex += cashflow;
+    interetsCumDuplex += interets;
+    coutsRecCumDuplex += coutsImmeuble;
+    tsDuplex.push({
+      annee: y,
+      valeurBien: Math.round(valeurDuplex),
+      cashflow: Math.round(cashflow),
+      loyer: Math.round(loyerEffectif),
+    });
+  }
+  const valeurFinaleDuplex = valeurDuplex;
+  const commissionDuplex = valeurFinaleDuplex * commVente;
+  // Impôt gain en capital : seulement sur la portion locative
+  const gainCapDuplex = (valeurFinaleDuplex - prixDuplex) * portionLocative;
+  const impotGainCapDuplex = gainCapDuplex * inclusionGainCap * tmiActuel;
+  const gainNetReventeDuplex = valeurFinaleDuplex - soldeDuplex - commissionDuplex - fraisJurVente - impotGainCapDuplex;
+  const beneficeNetDuplex = gainNetReventeDuplex + cashflowCumDuplex - coutInitialDuplex;
+
+  // ================ IMMO LOCATIF PUR ================
+  const miseFondsLoc = prix * miseFondsLocPct;
+  const empruntLoc = prix - miseFondsLoc;
+  const rMensLoc = tauxHypoLoc / 12;
+  const versementMensLoc = rMensLoc * empruntLoc / (1 - Math.pow(1 + rMensLoc, -nMens));
+  const coutInitialLoc = miseFondsLoc + notaire + inspection + taxeBienvenue + divers;
+
+  let soldeLoc = empruntLoc, cashflowCumLoc = 0;
+  let valeurLoc = prix;
+  const tsLoc = [];
+  for (let y = 1; y <= horizon; y++) {
+    const valDebut = valeurLoc;
+    valeurLoc = valDebut * (1 + apprec);
+    const soldeDebut = soldeLoc;
+    const soldeFin = y <= amortissement
+      ? Math.max(0, soldeDebut * Math.pow(1 + rMensLoc, 12) - versementMensLoc * (Math.pow(1 + rMensLoc, 12) - 1) / rMensLoc)
+      : 0;
+    const capital = soldeDebut - soldeFin;
+    const verseAnnuel = y <= amortissement ? versementMensLoc * 12 : 0;
+    const interets = verseAnnuel - capital;
+    const condoAn = condoMens * 12 * Math.pow(1 + inflationCouts, y - 1);
+    const assurAn = assurMens * 12 * 1.3 * Math.pow(1 + inflationAssur, y - 1);
+    const taxeMuniAnY = taxeMuniAn * Math.pow(1 + inflationCouts, y - 1);
+    const taxeScolaireAnY = taxeScolaireAn * Math.pow(1 + inflationCouts, y - 1);
+    const entretienAn = valDebut * entretienPct;
+    const coutsRec = condoAn + assurAn + taxeMuniAnY + taxeScolaireAnY + entretienAn;
+    const loyerBrut = loyerPercuInitial * 12 * Math.pow(1 + augmLoyer, y - 1);
+    const loyerEffectif = loyerBrut * (1 - vacancePct) * (1 - gestionPct);
+    const cashflowAvantImpot = loyerEffectif - verseAnnuel - coutsRec;
+    const revenuNetImposable = loyerEffectif - interets - coutsRec;
+    const impot = Math.max(0, revenuNetImposable * tmiActuel);
+    const cashflowApresImpot = cashflowAvantImpot - impot;
+    soldeLoc = soldeFin;
+    cashflowCumLoc += cashflowApresImpot;
+    tsLoc.push({
+      annee: y,
+      valeurBien: Math.round(valeurLoc),
+      cashflow: Math.round(cashflowApresImpot),
+      loyer: Math.round(loyerEffectif),
+    });
+  }
+  const valeurFinaleLoc = valeurLoc;
+  const commissionLoc = valeurFinaleLoc * commVente;
+  const gainCap = valeurFinaleLoc - prix;
+  const impotGainCap = gainCap * inclusionGainCap * tmiActuel;
+  const gainNetRevente = valeurFinaleLoc - soldeLoc - commissionLoc - fraisJurVente - impotGainCap;
+  const beneficeNetLoc = gainNetRevente + cashflowCumLoc - coutInitialLoc;
+
+  // ================ BOURSE (louer + investir) ================
+  let cotisCeliCum = 0, porteCELI = 0, porteREER = 0, porteNonEnr = 0, investiCum = 0;
+  let reerDispo = reerDisponibleInitial;
+  const tsBourse = [];
+  for (let y = 1; y <= horizon; y++) {
+    let rendementAnnuel = rendement;
+    if (stressAppliquer && y === stressAnnee) {
+      rendementAnnuel = stressBourse;
+    }
+    const loyerMens = loyerInitial * Math.pow(1 + augmLoyer, y - 1);
+    const coutLocAn = loyerMens * 12 + assurLoc * 12 * Math.pow(1 + inflationAssur, y - 1);
+    const verseHypoAn = y <= amortissement ? versementMens * 12 : 0;
+    const condoAn = condoMens * 12 * Math.pow(1 + inflationCouts, y - 1);
+    const assurAn = assurMens * 12 * Math.pow(1 + inflationAssur, y - 1);
+    const taxeMuniAnY = taxeMuniAn * Math.pow(1 + inflationCouts, y - 1);
+    const taxeScolaireAnY = taxeScolaireAn * Math.pow(1 + inflationCouts, y - 1);
+    const entretienAn = prix * Math.pow(1 + apprec, y - 1) * entretienPct;
+    const coutPropAn = verseHypoAn + condoAn + assurAn + taxeMuniAnY + taxeScolaireAnY + entretienAn;
+    const economie = Math.max(0, coutPropAn - coutLocAn);
+
+    // Année 1: on ajoute aussi le capital initial équivalent
+    const aInvestir = economie + (y === 1 ? coutInitialRP : 0);
+
+    // Répartition: CELI d'abord (plafond annuel + droits accumulés), puis REER, puis non-enregistré
+    // Pour simplifier : la limite CELI est cumulative, chaque année on peut mettre ce qui reste + 7 000 $ nouveau
+    const droitsCeliRestants = Math.max(0, celiDisponible + y * 7000 - cotisCeliCum);
+    const depotCELI = Math.min(aInvestir, droitsCeliRestants);
+    const apresCELI = aInvestir - depotCELI;
+
+    const plafondReerAnnuel = Math.min(33810, salaireActuel * 0.18);
+    const droitsReerTotal = reerDispo + plafondReerAnnuel;
+    const depotREER = Math.min(apresCELI, droitsReerTotal);
+    reerDispo = Math.max(0, droitsReerTotal - depotREER);
+    const depotNonEnr = apresCELI - depotREER;
+
+    cotisCeliCum += depotCELI;
+    porteCELI = porteCELI * (1 + rendementAnnuel) + depotCELI;
+    porteREER = porteREER * (1 + rendementAnnuel) + depotREER;
+    // Non-enregistré : imposé sur rendement chaque année (approximation : 50 % gain en capital, reste imposé sur dividendes/intérêts)
+    // Approximation simple : on taxe 30 % du rendement chaque année (mix gain en cap réalisé + dividendes)
+    const rendementNonEnr = porteNonEnr * rendementAnnuel;
+    const impotAnnuelNonEnr = rendementNonEnr * 0.5 * tmiActuel; // 50% inclusion gain en cap
+    porteNonEnr = porteNonEnr + rendementNonEnr - impotAnnuelNonEnr + depotNonEnr;
+    investiCum += aInvestir;
+    tsBourse.push({
+      annee: y,
+      porteCELI: Math.round(porteCELI),
+      porteREER: Math.round(porteREER),
+      porteNonEnr: Math.round(porteNonEnr),
+      porteTotal: Math.round(porteCELI + porteREER + porteNonEnr),
+      investiCum: Math.round(investiCum),
+      economie: Math.round(economie),
+    });
+  }
+  const porteNetApresImpot = porteCELI + porteREER * (1 - tmiRetraite) + porteNonEnr;
+  const beneficeNetBourse = porteNetApresImpot - investiCum;
+
+  // ================ VERSIONS DOLLARS RÉELS ================
+  const facteurInflation = Math.pow(1 + inflationGen, horizon);
+  const reel = (v) => v / facteurInflation;
+
+  return {
+    meta: { tmiActuel, tmiRetraite, facteurInflation },
+    rp: {
+      valeurFinale: valeurFinaleRP,
+      gainBrut: gainBrutRP,
+      coutInitial: coutInitialRP,
+      interetsCum: interetsCumRP,
+      coutsRecCum: coutsRecCumRP,
+      beneficeNet: beneficeNetRP,
+      beneficeNetReel: reel(beneficeNetRP),
+      equiteFinale: valeurFinaleRP - soldeRP,
+      versementMens,
+      timeseries: tsRP,
+    },
+    duplex: {
+      valeurFinale: valeurFinaleDuplex,
+      gainNetRevente: gainNetReventeDuplex,
+      cashflowCum: cashflowCumDuplex,
+      coutInitial: coutInitialDuplex,
+      impotGainCap: impotGainCapDuplex,
+      beneficeNet: beneficeNetDuplex,
+      beneficeNetReel: reel(beneficeNetDuplex),
+      versementMens: versementMensDuplex,
+      prixDuplex,
+      timeseries: tsDuplex,
+    },
+    loc: {
+      valeurFinale: valeurFinaleLoc,
+      gainNetRevente,
+      cashflowCum: cashflowCumLoc,
+      coutInitial: coutInitialLoc,
+      impotGainCap,
+      beneficeNet: beneficeNetLoc,
+      beneficeNetReel: reel(beneficeNetLoc),
+      versementMens: versementMensLoc,
+      timeseries: tsLoc,
+    },
+    bourse: {
+      porteCELI,
+      porteREER,
+      porteNonEnr,
+      porteTotal: porteCELI + porteREER + porteNonEnr,
+      porteNetApresImpot,
+      investiCum,
+      beneficeNet: beneficeNetBourse,
+      beneficeNetReel: reel(beneficeNetBourse),
+      timeseries: tsBourse,
+    },
+    derives: {
+      taxeBienvenue, taxeScolaireAn, taxeMuniAn,
+      versementMens,
+    }
+  };
+}
+
+/* ============================================================
+   UI HELPERS
+   ============================================================ */
+function Tooltip2({ text, children }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="relative inline-block">
+      <span
+        className="underline decoration-dotted decoration-stone-400 cursor-help"
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        onClick={() => setShow(s => !s)}
+      >
+        {children}
+      </span>
+      {show && (
+        <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-stone-900 text-stone-100 text-xs rounded-lg shadow-xl normal-case tracking-normal font-sans">
+          {text}
+          <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-stone-900" />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function SourceLink({ sourceKey }) {
+  const s = SOURCES[sourceKey];
+  if (!s) return null;
+  return (
+    <Tooltip2 text={`${s.label} — ${s.note}`}>
+      <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-xs text-amber-700 hover:text-amber-900 ml-1">ⓘ</a>
+    </Tooltip2>
+  );
+}
+
+function Slider({ label, value, onChange, min, max, step, format, help, sourceKey }) {
+  const formatted = format === 'pct' ? `${(value * 100).toFixed(1)}%`
+    : format === 'money' ? `${Math.round(value).toLocaleString('fr-CA')} $`
+    : value.toString();
+  return (
+    <div className="mb-4">
+      <div className="flex justify-between items-baseline mb-1 gap-2">
+        <label className="text-sm font-medium text-stone-700 flex items-center gap-1">
+          {label}
+          {sourceKey && <SourceLink sourceKey={sourceKey} />}
+        </label>
+        <span className="text-sm font-mono font-semibold text-amber-900 tabular-nums">{formatted}</span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full h-1 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-amber-700"
+      />
+      {help && <p className="text-xs text-stone-500 mt-1 italic">{help}</p>}
+    </div>
+  );
+}
+
+function NumberInput({ label, value, onChange, min, max, step, format, help, sourceKey }) {
+  return (
+    <div className="mb-4">
+      <label className="text-sm font-medium text-stone-700 flex items-center gap-1 mb-1">
+        {label}
+        {sourceKey && <SourceLink sourceKey={sourceKey} />}
+      </label>
+      <input
+        type="number" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        className="w-full px-3 py-2 border border-stone-300 rounded bg-white text-sm font-mono tabular-nums focus:outline-none focus:border-amber-700"
+      />
+      {help && <p className="text-xs text-stone-500 mt-1 italic">{help}</p>}
+    </div>
+  );
+}
+
+function MoneyCard({ label, value, sublabel, emphasis, color }) {
+  const colorMap = {
+    green: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+    amber: 'bg-amber-50 border-amber-200 text-amber-900',
+    stone: 'bg-stone-50 border-stone-200 text-stone-900',
+    red: 'bg-red-50 border-red-200 text-red-900',
+  };
+  const rounded = Math.round(value);
+  const isNeg = rounded < 0;
+  const formatted = `${isNeg ? '−' : ''}${Math.abs(rounded).toLocaleString('fr-CA')} $`;
+  return (
+    <div className={`rounded-lg border p-4 ${colorMap[color || 'stone']}`}>
+      <div className="text-xs uppercase tracking-wider opacity-75 font-medium">{label}</div>
+      <div className={`${emphasis ? 'text-3xl' : 'text-2xl'} font-serif font-bold mt-1 tabular-nums`}>{formatted}</div>
+      {sublabel && <div className="text-xs opacity-60 mt-1">{sublabel}</div>}
+    </div>
+  );
+}
+
+/* ============================================================
+   GLOSSAIRE
+   ============================================================ */
+const GLOSSAIRE = [
+  { terme: 'TMI (Taux Marginal d\'Imposition)', def: 'Le taux d\'impôt payé sur le prochain dollar gagné. Au Québec en 2026, va de 26 % à 53 %. Ex : si ton salaire est 80 000 $, ton TMI est 37 %, donc chaque dollar de plus est taxé à 37 %.' },
+  { terme: 'CELI', def: 'Compte d\'Épargne Libre d\'Impôt. L\'argent y croît sans impôt, et les retraits sont totalement non imposables. Plafond cumulatif en 2026 : jusqu\'à 109 000 $ si admissible depuis 2009.' },
+  { terme: 'REER', def: 'Régime Enregistré d\'Épargne-Retraite. Les cotisations réduisent ton revenu imposable cette année (déduction fiscale). L\'argent croît à l\'abri de l\'impôt, mais les retraits sont taxés plus tard au TMI de la retraite.' },
+  { terme: 'Compte non-enregistré (marge)', def: 'Compte de placement ordinaire. Pas d\'avantage fiscal à l\'entrée, et le rendement est imposé chaque année (dividendes + 50 % des gains en capital réalisés).' },
+  { terme: 'Taux d\'inclusion (gain en capital)', def: 'Au Canada, seulement 50 % d\'un gain en capital est ajouté à ton revenu imposable. Ex : gain de 100 000 $ → 50 000 $ s\'ajoutent, taxés au TMI. Pas 50 % d\'impôt mais 50 % d\'inclusion.' },
+  { terme: 'Résidence principale (exemption)', def: 'Le gain en capital sur ta résidence principale est totalement exempté d\'impôt au Canada. C\'est un énorme avantage pour un condo/maison où tu habites.' },
+  { terme: 'Amortissement hypothécaire', def: 'Durée pour rembourser totalement l\'hypothèque. Standard : 25 ans. Chaque versement mensuel contient une portion d\'intérêt (vraie dépense) et une portion de capital (qui t\'appartient).' },
+  { terme: 'Équité', def: 'La valeur actuelle du bien moins le solde hypothécaire. C\'est ta "vraie" richesse immobilière. Commence petite, grossit à mesure que tu rembourses + le bien prend de la valeur.' },
+  { terme: 'Cashflow locatif', def: 'Loyers reçus moins toutes les dépenses (hypothèque, condo, taxes, entretien, assurance, impôt). Peut être négatif les premières années.' },
+  { terme: 'Vacance', def: 'Pourcentage du temps où le logement locatif n\'a pas de locataire. Varie entre 2 % et 10 % selon le secteur. Standard prudent : 5 %.' },
+  { terme: 'Dollars réels vs nominaux', def: 'Les dollars "nominaux" sont les montants bruts en 2050. Les dollars "réels" ajustent pour l\'inflation pour refléter le pouvoir d\'achat d\'aujourd\'hui. À 2,5 % d\'inflation, 1 000 $ en 2051 = ~540 $ de 2026.' },
+  { terme: 'Facteur d\'appréciation', def: 'Taux annuel de hausse du prix d\'une maison. Montréal : moyenne historique ~3-4 %/an, mais +46 % pour les condos sur 2020-2025 selon l\'APCIQ (période exceptionnelle).' },
+];
+
+/* ============================================================
+   PARAMÈTRES PAR DÉFAUT
+   ============================================================ */
+const defaultH = {
+  // Bien
+  prix: 400000,
+  miseFondsPct: 0.20,
+  tauxHypo: 0.05,
+  amortissement: 25,
+  apprec: 0.035,
+  horizon: 25,
+  // Frais achat
+  notaire: 2000, inspection: 600, divers: 5000,
+  // Coûts récurrents
+  condoMens: 400, assurMens: 50, entretienPct: 0.01,
+  inflationCouts: 0.025,
+  inflationAssur: 0.06, // assurance habitation a augmenté 7,3 % en 2024, 5,3 % en 2025
+  // Vente
+  commVente: 0.05, fraisJurVente: 1500,
+  // Location (scénario bourse)
+  loyerInitial: 2200,
+  augmLoyer: 0.045, // SCHL 2025 : +7,2 % Montréal, +6,3 % Québec 2024 — ajustement moyen TAL ~4 %
+  assurLoc: 25,
+  // Bourse
+  rendement: 0.08,
+  // Profil
+  salaireActuel: 85000,
+  ageActuel: 33,
+  ageRetraite: 60,
+  revenuRetraiteEstime: 45000,
+  inflationGen: 0.025,
+  // CELI/REER - seront calculés par défaut mais ajustables
+  anneeArriveeCanada: 2016,
+  reerDisponibleInitial: 20000,
+  inclusionGainCap: 0.50,
+  // Locatif
+  miseFondsLocPct: 0.20,
+  tauxHypoLoc: 0.055,
+  loyerPercuInitial: 1700,
+  vacancePct: 0.05,
+  gestionPct: 0.00,
+  // Duplex
+  nbLogementsLoues: 1,
+  // Stress
+  stressAppliquer: false,
+  stressAnnee: 5,
+  stressImmo: -0.15,
+  stressBourse: -0.30,
+  stressTauxRenouv: 0.07,
+};
+
+/* ============================================================
+   APP PRINCIPALE
+   ============================================================ */
+export default function App() {
+  const [mode, setMode] = useState('debutant');
+  const [activeTab, setActiveTab] = useState('comparison');
+  const [dollarsReels, setDollarsReels] = useState(false);
+  const [showGlossaire, setShowGlossaire] = useState(false);
+  const [rawH, setRawH] = useState(defaultH);
+
+  // Injection automatique des droits CELI selon année d'arrivée
+  const h = useMemo(() => ({
+    ...rawH,
+    celiDisponible: droitsCeliCumulatifs(rawH.anneeArriveeCanada),
+  }), [rawH]);
+
+  const update = (key) => (val) => setRawH(prev => ({ ...prev, [key]: val }));
+
+  const results = useMemo(() => computeScenarios(h), [h]);
+  const { rp, duplex, loc, bourse, derives, meta } = results;
+
+  const facteurReel = dollarsReels ? (1 / meta.facteurInflation) : 1;
+  const applyReel = (v) => v * facteurReel;
+  const fmtMoney = (v) => `${Math.round(v).toLocaleString('fr-CA')} $`;
+
+  // Comparaison (bénéfice net)
+  const comparaison = [
+    { name: 'Résidence', value: applyReel(rp.beneficeNet), full: 'Résidence principale' },
+    { name: 'Duplex', value: applyReel(duplex.beneficeNet), full: `Duplex (tu habites + loues ${h.nbLogementsLoues})` },
+    { name: 'Locatif', value: applyReel(loc.beneficeNet), full: 'Immeuble locatif pur' },
+    { name: 'Bourse', value: applyReel(bourse.beneficeNet), full: 'Louer + investir' },
+  ];
+  const winner = [...comparaison].sort((a, b) => b.value - a.value)[0];
+
+  // Évolution (séries temporelles alignées : valeur nette équivalente)
+  const timeSeriesData = rp.timeseries.map((r, i) => ({
+    annee: r.annee,
+    'Résidence': applyReel(r.equite * (1 - h.commVente)), // équité brute moins commission future
+    'Duplex': applyReel(duplex.timeseries[i].valeurBien * (1 - h.commVente)),
+    'Locatif': applyReel(loc.timeseries[i].valeurBien * (1 - h.commVente)),
+    'Bourse': applyReel(bourse.timeseries[i].porteTotal),
+  }));
+
+  // Sensibilité 2D (rendement bourse x apprec immo)
+  const sensibiliteData = useMemo(() => {
+    const results = [];
+    const rendements = [0.04, 0.06, 0.08, 0.10];
+    const apprecs = [0.01, 0.025, 0.04, 0.055];
+    for (const rdt of rendements) {
+      const row = { rendement: `${(rdt * 100).toFixed(0)}%` };
+      for (const ap of apprecs) {
+        const res = computeScenarios({ ...h, rendement: rdt, apprec: ap });
+        const gagnant = [
+          { n: 'RP', v: res.rp.beneficeNet },
+          { n: 'Bourse', v: res.bourse.beneficeNet },
+        ].sort((a, b) => b.v - a.v)[0];
+        row[`${(ap * 100).toFixed(1)}%`] = { gagnant: gagnant.n, ecart: Math.abs(res.rp.beneficeNet - res.bourse.beneficeNet) };
+      }
+      results.push(row);
+    }
+    return { data: results, apprecs: apprecs.map(a => `${(a * 100).toFixed(1)}%`) };
+  }, [h]);
+
+  // Décaissement retraite
+  const decaissementData = useMemo(() => {
+    const anneesRetraite = Math.max(0, h.ageActuel + h.horizon - h.ageRetraite);
+    if (anneesRetraite === 0) return null;
+    const retraitAnnuel = (bourse.porteNetApresImpot) / anneesRetraite; // simple : étalé linéairement
+    return {
+      anneesRetraite,
+      retraitAnnuel,
+      retraitMensuel: retraitAnnuel / 12,
+    };
+  }, [h, bourse]);
+
+  return (
+    <div className="min-h-screen bg-stone-50" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+      {/* ===== Header ===== */}
+      <header className="bg-stone-900 text-stone-100 border-b-4 border-amber-700">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="flex justify-between items-start gap-4 flex-wrap">
+            <div>
+              <div className="text-xs uppercase tracking-[0.3em] text-amber-400 mb-1">Simulateur · Montréal · 2026</div>
+              <h1 className="text-3xl md:text-4xl font-serif font-bold tracking-tight">
+                Où investir mes économies ?
+              </h1>
+              <p className="text-stone-400 mt-2 text-sm max-w-2xl">
+                Quatre chemins comparés sur {h.horizon} ans, avec fiscalité canadienne et sources officielles.
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap items-center">
+              <div className="flex bg-stone-800 rounded-lg p-1 text-xs">
+                <button onClick={() => setMode('debutant')} className={`px-3 py-1.5 rounded ${mode === 'debutant' ? 'bg-amber-700 text-white' : 'text-stone-400'}`}>Débutant</button>
+                <button onClick={() => setMode('avance')} className={`px-3 py-1.5 rounded ${mode === 'avance' ? 'bg-amber-700 text-white' : 'text-stone-400'}`}>Avancé</button>
+              </div>
+              <label className="flex items-center gap-2 text-xs bg-stone-800 rounded-lg px-3 py-1.5 cursor-pointer">
+                <input type="checkbox" checked={dollarsReels} onChange={(e) => setDollarsReels(e.target.checked)} className="accent-amber-700" />
+                <Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('Dollars'))?.def || ''}>
+                  <span className="text-stone-200">Dollars d'aujourd'hui</span>
+                </Tooltip2>
+              </label>
+              <button onClick={() => setShowGlossaire(true)} className="text-xs bg-stone-800 rounded-lg px-3 py-1.5 text-stone-200 hover:bg-stone-700">📖 Lexique</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ===== Verdict ===== */}
+      <section className="bg-gradient-to-b from-amber-50 to-stone-50 border-b border-stone-200">
+        <div className="max-w-7xl mx-auto px-6 py-5">
+          <div className="text-xs uppercase tracking-wider text-stone-500 mb-1">Verdict avec vos hypothèses</div>
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <span className="text-2xl md:text-3xl font-serif font-bold text-stone-900">{winner.full}</span>
+            <span className="text-stone-500">gagne avec</span>
+            <span className="text-2xl md:text-3xl font-mono font-bold text-emerald-700 tabular-nums">{fmtMoney(winner.value)}</span>
+            <span className="text-stone-500 text-sm">de bénéfice net{dollarsReels ? ' (en $ d\'aujourd\'hui)' : ''} sur {h.horizon} ans</span>
+          </div>
+          <div className="mt-3 text-xs text-stone-500">
+            TMI détecté : <span className="font-semibold text-stone-700">{(meta.tmiActuel * 100).toFixed(1)}%</span> pour un salaire de {fmtMoney(h.salaireActuel)} · Droits CELI : <span className="font-semibold text-stone-700">{fmtMoney(h.celiDisponible)}</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ===== Tabs ===== */}
+      <div className="max-w-7xl mx-auto px-6 pt-6">
+        <div className="flex gap-1 border-b border-stone-300 overflow-x-auto">
+          {[
+            { id: 'comparison', label: 'Comparaison', mode: 'all' },
+            { id: 'profil', label: 'Mon profil', mode: 'all' },
+            { id: 'rp', label: 'Résidence', mode: 'all' },
+            { id: 'duplex', label: 'Duplex', mode: 'all' },
+            { id: 'loc', label: 'Locatif', mode: 'all' },
+            { id: 'bourse', label: 'Bourse', mode: 'all' },
+            { id: 'sensibilite', label: 'Sensibilité', mode: 'avance' },
+            { id: 'stress', label: 'Stress tests', mode: 'avance' },
+            { id: 'retraite', label: 'Décaissement retraite', mode: 'avance' },
+            { id: 'nonfin', label: 'Facteurs non financiers', mode: 'all' },
+            { id: 'params', label: 'Paramètres', mode: 'all' },
+          ].filter(t => t.mode === 'all' || mode === 'avance').map(t => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === t.id ? 'border-b-2 border-amber-700 text-stone-900 -mb-px' : 'text-stone-500 hover:text-stone-800'
+              }`}
+            >{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ===== Contenu ===== */}
+      <main className="max-w-7xl mx-auto px-6 py-8">
+
+        {/* ===== COMPARAISON ===== */}
+        {activeTab === 'comparison' && (
+          <div className="space-y-6">
+            {/* Tableau comparatif pédagogique */}
+            <div className="bg-white rounded-lg border border-stone-200 overflow-hidden">
+              <div className="bg-stone-100 p-4 border-b border-stone-200">
+                <h3 className="font-serif font-bold text-lg text-stone-900">Comparatif des stratégies</h3>
+                <p className="text-xs text-stone-500 mt-1">Chaque stratégie implique des compromis fiscaux, de risque et de liquidité.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-stone-50 text-xs uppercase tracking-wider text-stone-600">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Stratégie</th>
+                      <th className="px-4 py-2 text-left">Comment ça marche</th>
+                      <th className="px-4 py-2 text-left">Fiscalité</th>
+                      <th className="px-4 py-2 text-left">Risque</th>
+                      <th className="px-4 py-2 text-left">Liquidité</th>
+                      <th className="px-4 py-2 text-right">Bénéfice net</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-t border-stone-200">
+                      <td className="px-4 py-3 font-semibold">Résidence principale</td>
+                      <td className="px-4 py-3 text-stone-600">Tu achètes et habites. Mise de fonds + hypothèque.</td>
+                      <td className="px-4 py-3 text-stone-600"><Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('Résidence principale'))?.def}>Exemption totale</Tooltip2></td>
+                      <td className="px-4 py-3 text-stone-600">Moyen (un actif unique)</td>
+                      <td className="px-4 py-3 text-stone-600">Faible (6 mois pour vendre)</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-amber-900">{fmtMoney(applyReel(rp.beneficeNet))}</td>
+                    </tr>
+                    <tr className="border-t border-stone-200 bg-stone-50">
+                      <td className="px-4 py-3 font-semibold">Duplex/Plex</td>
+                      <td className="px-4 py-3 text-stone-600">Tu habites un logement, loues les autres. Levier accru.</td>
+                      <td className="px-4 py-3 text-stone-600">Portion occupée exemptée, portion louée taxée</td>
+                      <td className="px-4 py-3 text-stone-600">Moyen-élevé</td>
+                      <td className="px-4 py-3 text-stone-600">Faible</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-amber-900">{fmtMoney(applyReel(duplex.beneficeNet))}</td>
+                    </tr>
+                    <tr className="border-t border-stone-200">
+                      <td className="px-4 py-3 font-semibold">Locatif pur</td>
+                      <td className="px-4 py-3 text-stone-600">Tu achètes et loues tout. Tu habites ailleurs.</td>
+                      <td className="px-4 py-3 text-stone-600">Revenus taxés + <Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('inclusion'))?.def}>50 % gain en capital</Tooltip2></td>
+                      <td className="px-4 py-3 text-stone-600">Élevé (gestion + vacance)</td>
+                      <td className="px-4 py-3 text-stone-600">Faible</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-amber-900">{fmtMoney(applyReel(loc.beneficeNet))}</td>
+                    </tr>
+                    <tr className="border-t border-stone-200 bg-stone-50">
+                      <td className="px-4 py-3 font-semibold">Louer + investir</td>
+                      <td className="px-4 py-3 text-stone-600">Tu loues un logement, tu investis l'équivalent de la mise + économies en bourse.</td>
+                      <td className="px-4 py-3 text-stone-600"><Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('CELI'))?.def}>CELI</Tooltip2> + <Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('REER'))?.def}>REER</Tooltip2> + <Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('non-enregistré'))?.def}>non-enr.</Tooltip2></td>
+                      <td className="px-4 py-3 text-stone-600">Moyen (ETF diversifiés)</td>
+                      <td className="px-4 py-3 text-stone-600">Élevée (vente en 2 jours)</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-amber-900">{fmtMoney(applyReel(bourse.beneficeNet))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Graphique barres */}
+            <div className="bg-white rounded-lg border border-stone-200 p-6">
+              <h3 className="text-lg font-serif font-bold text-stone-900 mb-4">
+                Bénéfice net après {h.horizon} ans {dollarsReels && <span className="text-sm font-normal text-stone-500">(en dollars d'aujourd'hui)</span>}
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={comparaison}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                  <XAxis dataKey="name" stroke="#78716c" />
+                  <YAxis stroke="#78716c" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => fmtMoney(v)} />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                    {comparaison.map((entry, i) => (
+                      <Cell key={i} fill={entry.name === winner.name ? '#059669' : '#b45309'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Graphique évolution uniformisée */}
+            <div className="bg-white rounded-lg border border-stone-200 p-6">
+              <h3 className="text-lg font-serif font-bold text-stone-900 mb-1">Évolution sur {h.horizon} ans</h3>
+              <p className="text-xs text-stone-500 mb-4">Valeurs nettes équivalentes (incluant frais de sortie pour l'immo). {dollarsReels && 'Ajusté pour inflation.'}</p>
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={timeSeriesData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                  <XAxis dataKey="annee" stroke="#78716c" />
+                  <YAxis stroke="#78716c" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => fmtMoney(v)} />
+                  <Legend />
+                  <Line type="monotone" dataKey="Résidence" stroke="#059669" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="Duplex" stroke="#0369a1" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="Locatif" stroke="#7c2d12" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="Bourse" stroke="#b45309" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* ===== PROFIL ===== */}
+        {activeTab === 'profil' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <section className="bg-white rounded-lg border border-stone-200 p-5">
+              <h3 className="font-serif font-bold text-lg text-stone-900 mb-4 pb-2 border-b border-stone-200">Qui es-tu ?</h3>
+              <NumberInput label="Âge actuel" value={h.ageActuel} onChange={update('ageActuel')} min={18} max={65} step={1} />
+              <NumberInput label="Âge souhaité à la retraite" value={h.ageRetraite} onChange={update('ageRetraite')} min={40} max={75} step={1} help="Utilisé pour calculer le décaissement" />
+              <NumberInput label="Année d'arrivée au Canada" value={h.anneeArriveeCanada} onChange={update('anneeArriveeCanada')} min={1990} max={2026} step={1} help={`→ Droits CELI cumulés : ${fmtMoney(h.celiDisponible)}`} sourceKey="celi2026" />
+              <NumberInput label="Salaire brut annuel ($)" value={h.salaireActuel} onChange={update('salaireActuel')} min={20000} max={300000} step={1000} help={`→ TMI calculé : ${(meta.tmiActuel * 100).toFixed(1)} %`} sourceKey="tmi2026" format="money" />
+              <NumberInput label="Revenu annuel estimé à la retraite ($)" value={h.revenuRetraiteEstime} onChange={update('revenuRetraiteEstime')} min={15000} max={200000} step={1000} help={`→ TMI à la retraite : ${(meta.tmiRetraite * 100).toFixed(1)} %`} format="money" />
+              <NumberInput label="Droits REER inutilisés ($)" value={h.reerDisponibleInitial} onChange={update('reerDisponibleInitial')} min={0} max={500000} step={1000} help="Indiqué sur ton avis de cotisation ARC" sourceKey="reer2026" format="money" />
+            </section>
+
+            <section className="bg-amber-50 border border-amber-200 rounded-lg p-5">
+              <h3 className="font-serif font-bold text-lg text-amber-900 mb-4 pb-2 border-b border-amber-300">Conséquences calculées</h3>
+              <dl className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-stone-600"><Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('TMI'))?.def}>TMI actuel</Tooltip2></dt>
+                  <dd className="font-mono font-bold text-amber-900">{(meta.tmiActuel * 100).toFixed(1)} %</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-stone-600">TMI retraite estimé</dt>
+                  <dd className="font-mono font-bold text-amber-900">{(meta.tmiRetraite * 100).toFixed(1)} %</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-stone-600">Droits CELI cumulés</dt>
+                  <dd className="font-mono font-bold text-amber-900">{fmtMoney(h.celiDisponible)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-stone-600">Plafond REER annuel (18 % salaire)</dt>
+                  <dd className="font-mono font-bold text-amber-900">{fmtMoney(Math.min(33810, h.salaireActuel * 0.18))}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-stone-600">Années jusqu'à la retraite</dt>
+                  <dd className="font-mono font-bold text-amber-900">{Math.max(0, h.ageRetraite - h.ageActuel)} ans</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-stone-600">Horizon d'analyse</dt>
+                  <dd className="font-mono font-bold text-amber-900">{h.horizon} ans</dd>
+                </div>
+              </dl>
+              <p className="mt-5 text-xs text-stone-600 italic border-t border-amber-200 pt-3">
+                Ces valeurs sont calculées automatiquement à partir des paliers d'imposition Québec+fédéral 2026 et des plafonds CELI/REER officiels. Elles s'appliquent à tous les scénarios.
+              </p>
+            </section>
+          </div>
+        )}
+
+        {/* ===== Résidence principale ===== */}
+        {activeTab === 'rp' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <MoneyCard label="Versement mensuel" value={rp.versementMens} color="stone" />
+              <MoneyCard label="Coût initial" value={rp.coutInitial} color="stone" />
+              <MoneyCard label="Équité finale" value={applyReel(rp.equiteFinale)} color="amber" />
+              <MoneyCard label="Bénéfice net" value={applyReel(rp.beneficeNet)} color={rp.beneficeNet >= 0 ? 'green' : 'red'} emphasis sublabel={dollarsReels ? "en $ d'aujourd'hui" : ''} />
+            </div>
+
+            <div className="bg-white rounded-lg border border-stone-200 p-6">
+              <h3 className="text-lg font-serif font-bold text-stone-900 mb-4">Équité vs dette</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={rp.timeseries}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                  <XAxis dataKey="annee" stroke="#78716c" />
+                  <YAxis stroke="#78716c" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => fmtMoney(v)} />
+                  <Legend />
+                  <Line type="monotone" dataKey="valeurBien" name="Valeur du bien" stroke="#059669" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="soldeHypo" name="Solde hypo" stroke="#dc2626" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="equite" name="Équité" stroke="#b45309" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* ===== Duplex ===== */}
+        {activeTab === 'duplex' && (
+          <div className="space-y-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
+              <p className="text-stone-700">
+                <strong>Scénario :</strong> Tu achètes un immeuble à {fmtMoney(duplex.prixDuplex)}, tu habites 1 logement et loues <strong>{h.nbLogementsLoues} autre{h.nbLogementsLoues > 1 ? 's' : ''}</strong>. La portion que tu habites bénéficie de l'exemption résidence principale, la portion louée génère du revenu imposable.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <MoneyCard label="Versement mensuel" value={duplex.versementMens} color="stone" />
+              <MoneyCard label="Cashflow cumulé" value={applyReel(duplex.cashflowCum)} color={duplex.cashflowCum >= 0 ? 'green' : 'red'} />
+              <MoneyCard label="Valeur finale immeuble" value={applyReel(duplex.valeurFinale)} color="amber" />
+              <MoneyCard label="Bénéfice net" value={applyReel(duplex.beneficeNet)} color={duplex.beneficeNet >= 0 ? 'green' : 'red'} emphasis />
+            </div>
+            <div className="bg-white rounded-lg border border-stone-200 p-6">
+              <Slider label="Nombre de logements loués" value={h.nbLogementsLoues} onChange={update('nbLogementsLoues')} min={1} max={5} step={1} help="1 = duplex, 2 = triplex, 4 = 5-plex. Plus de logements = plus de levier mais plus de gestion." />
+            </div>
+            <div className="bg-white rounded-lg border border-stone-200 p-6">
+              <h3 className="text-lg font-serif font-bold text-stone-900 mb-4">Cashflow annuel après impôt</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={duplex.timeseries}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                  <XAxis dataKey="annee" stroke="#78716c" />
+                  <YAxis stroke="#78716c" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => fmtMoney(v)} />
+                  <Bar dataKey="cashflow" name="Cashflow" fill="#0369a1" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* ===== Locatif ===== */}
+        {activeTab === 'loc' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <MoneyCard label="Versement mensuel" value={loc.versementMens} color="stone" />
+              <MoneyCard label="Cashflow cumulé" value={applyReel(loc.cashflowCum)} color={loc.cashflowCum >= 0 ? 'green' : 'red'} />
+              <MoneyCard label="Impôt gain cap." value={-applyReel(loc.impotGainCap)} color="red" />
+              <MoneyCard label="Bénéfice net" value={applyReel(loc.beneficeNet)} color={loc.beneficeNet >= 0 ? 'green' : 'red'} emphasis />
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm">
+              <p className="text-stone-700 mb-2"><strong>Stratégies fiscales pour réduire l'impôt de sortie :</strong></p>
+              <ul className="list-disc list-inside space-y-1 text-xs text-stone-600">
+                <li><strong>Ne jamais vendre :</strong> transmettre aux héritiers (disposition réputée au décès mais reset de la base)</li>
+                <li><strong>Changement d'usage :</strong> habiter les dernières années pour désigner partiellement résidence principale (règle +1)</li>
+                <li><strong>Détention en société :</strong> report via roulement S.85, complexe mais possible</li>
+                <li><strong>Pertes en capital reportées :</strong> compenser avec des pertes accumulées ailleurs</li>
+              </ul>
+              <p className="text-xs text-stone-500 mt-2 italic">Consultez un comptable fiscaliste avant toute décision.</p>
+            </div>
+          </div>
+        )}
+
+        {/* ===== Bourse ===== */}
+        {activeTab === 'bourse' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <MoneyCard label="CELI final" value={applyReel(bourse.porteCELI)} color="green" />
+              <MoneyCard label="REER (brut)" value={applyReel(bourse.porteREER)} color="amber" />
+              <MoneyCard label="Non-enr." value={applyReel(bourse.porteNonEnr)} color="stone" />
+              <MoneyCard label="Bénéfice net" value={applyReel(bourse.beneficeNet)} color="green" emphasis />
+            </div>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-sm">
+              <p className="text-stone-700">
+                <strong>Logique d'allocation en cascade :</strong> capital initial ({fmtMoney(rp.coutInitial)}) investi année 1, puis chaque année l'économie entre le coût propriétaire et le loyer. <strong>CELI d'abord</strong> ({fmtMoney(h.celiDisponible)} disponible + 7 000 $/an), <strong>puis REER</strong> (jusqu'à 18 % du salaire), <strong>puis compte non-enregistré</strong> (imposé annuellement à ~{(0.5 * meta.tmiActuel * 100).toFixed(0)} % sur le rendement).
+              </p>
+            </div>
+            <div className="bg-white rounded-lg border border-stone-200 p-6">
+              <h3 className="text-lg font-serif font-bold text-stone-900 mb-4">Croissance du portefeuille</h3>
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={bourse.timeseries}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                  <XAxis dataKey="annee" stroke="#78716c" />
+                  <YAxis stroke="#78716c" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v) => fmtMoney(v)} />
+                  <Legend />
+                  <Line type="monotone" dataKey="porteCELI" name="CELI" stroke="#059669" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="porteREER" name="REER" stroke="#b45309" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="porteNonEnr" name="Non-enr." stroke="#7c2d12" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="porteTotal" name="Total" stroke="#1c1917" strokeWidth={2.5} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* ===== SENSIBILITÉ ===== */}
+        {activeTab === 'sensibilite' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg border border-stone-200 p-6">
+              <h3 className="text-lg font-serif font-bold text-stone-900 mb-1">Analyse de sensibilité</h3>
+              <p className="text-sm text-stone-500 mb-4">Qui gagne entre Résidence principale et Bourse selon les hypothèses ? Plus la case est foncée, plus l'écart est grand.</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th className="p-2 text-left text-xs text-stone-500">Rendement \ Apprec.</th>
+                      {sensibiliteData.apprecs.map(a => (
+                        <th key={a} className="p-2 text-center text-xs text-stone-600">{a}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sensibiliteData.data.map((row, i) => (
+                      <tr key={i}>
+                        <td className="p-2 text-xs font-semibold text-stone-700">{row.rendement}</td>
+                        {sensibiliteData.apprecs.map(a => {
+                          const cell = row[a];
+                          const intensity = Math.min(1, cell.ecart / 500000);
+                          const bg = cell.gagnant === 'Bourse'
+                            ? `rgba(180, 83, 9, ${0.15 + intensity * 0.5})`
+                            : `rgba(5, 150, 105, ${0.15 + intensity * 0.5})`;
+                          return (
+                            <td key={a} className="p-2 text-center text-xs" style={{ backgroundColor: bg }}>
+                              <div className="font-bold">{cell.gagnant}</div>
+                              <div className="text-[10px] opacity-70">+{fmtMoney(cell.ecart)}</div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-4 text-xs text-stone-500">
+                <span className="inline-block w-3 h-3 bg-emerald-600 mr-1 align-middle" /> Résidence gagne ·
+                <span className="inline-block w-3 h-3 bg-amber-700 mr-1 ml-3 align-middle" /> Bourse gagne
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ===== STRESS TESTS ===== */}
+        {activeTab === 'stress' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg border border-stone-200 p-5">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={h.stressAppliquer} onChange={(e) => update('stressAppliquer')(e.target.checked)} className="w-5 h-5 accent-red-700" />
+                <span className="font-serif font-bold text-stone-900">Activer les stress tests</span>
+              </label>
+              {h.stressAppliquer && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-stone-200">
+                  <Slider label="Année du choc" value={h.stressAnnee} onChange={update('stressAnnee')} min={1} max={h.horizon} step={1} help="Année où le marché plonge" />
+                  <Slider label="Choc sur l'immobilier" value={h.stressImmo} onChange={update('stressImmo')} min={-0.4} max={0} step={0.05} format="pct" help="Ex : -15 % en 1 an" />
+                  <Slider label="Choc sur la bourse" value={h.stressBourse} onChange={update('stressBourse')} min={-0.5} max={0} step={0.05} format="pct" help="Ex : -30 % comme 2008" />
+                  <Slider label="Taux hypo au renouvellement an 5" value={h.stressTauxRenouv} onChange={update('stressTauxRenouv')} min={0.03} max={0.12} step={0.005} format="pct" help="Si tu dois renouveler à un taux plus haut" />
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <MoneyCard label="Résidence" value={applyReel(rp.beneficeNet)} color={h.stressAppliquer ? 'red' : 'stone'} />
+              <MoneyCard label="Duplex" value={applyReel(duplex.beneficeNet)} color={h.stressAppliquer ? 'red' : 'stone'} />
+              <MoneyCard label="Locatif" value={applyReel(loc.beneficeNet)} color={h.stressAppliquer ? 'red' : 'stone'} />
+              <MoneyCard label="Bourse" value={applyReel(bourse.beneficeNet)} color={h.stressAppliquer ? 'red' : 'stone'} emphasis />
+            </div>
+            <div className="bg-stone-100 rounded-lg p-4 text-xs text-stone-600 italic">
+              Les stress tests ne prédisent pas l'avenir — ils révèlent la robustesse de chaque stratégie face à un événement défavorable. Un portefeuille diversifié en bourse rebondit historiquement en 3-5 ans, l'immobilier en 5-10 ans selon les cycles.
+            </div>
+          </div>
+        )}
+
+        {/* ===== DÉCAISSEMENT RETRAITE ===== */}
+        {activeTab === 'retraite' && decaissementData && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg border border-stone-200 p-6">
+              <h3 className="text-lg font-serif font-bold text-stone-900 mb-1">Décaissement à la retraite</h3>
+              <p className="text-sm text-stone-500 mb-4">
+                Si tu prends ta retraite à {h.ageRetraite} ans et que ton espérance de vie est 90 ans, tu auras {decaissementData.anneesRetraite} ans de retraite à financer.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-amber-50 rounded-lg p-4">
+                  <div className="text-xs uppercase tracking-wider text-stone-500">Portefeuille total net</div>
+                  <div className="text-2xl font-serif font-bold text-amber-900 mt-1">{fmtMoney(applyReel(bourse.porteNetApresImpot))}</div>
+                </div>
+                <div className="bg-emerald-50 rounded-lg p-4">
+                  <div className="text-xs uppercase tracking-wider text-stone-500">Retrait annuel sur {decaissementData.anneesRetraite} ans</div>
+                  <div className="text-2xl font-serif font-bold text-emerald-800 mt-1">{fmtMoney(applyReel(decaissementData.retraitAnnuel))}</div>
+                </div>
+                <div className="bg-stone-100 rounded-lg p-4">
+                  <div className="text-xs uppercase tracking-wider text-stone-500">Retrait mensuel</div>
+                  <div className="text-2xl font-serif font-bold text-stone-900 mt-1">{fmtMoney(applyReel(decaissementData.retraitMensuel))}</div>
+                </div>
+              </div>
+              <p className="mt-4 text-xs text-stone-500 italic">
+                Calcul simple (étalé linéairement sans rendement résiduel). Dans la réalité, le portefeuille continue de croître pendant le décaissement, ce qui augmente le montant disponible. Une règle plus sophistiquée (règle des 4 %) donnerait {fmtMoney(applyReel(bourse.porteNetApresImpot * 0.04))}/an à vie.
+              </p>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-5 text-sm">
+              <p className="text-stone-700 font-semibold mb-2">Ordre de décaissement optimal :</p>
+              <ol className="list-decimal list-inside space-y-1 text-stone-600 text-xs">
+                <li><strong>Compte non-enregistré d'abord</strong> : déjà imposé au fil des ans, retraits non imposés</li>
+                <li><strong>REER ensuite</strong> (converti en FERR à 71 ans au plus tard) : taxé au TMI plus bas de la retraite</li>
+                <li><strong>CELI en dernier</strong> : maximise la croissance à l'abri de l'impôt</li>
+              </ol>
+            </div>
+          </div>
+        )}
+
+        {/* ===== FACTEURS NON FINANCIERS ===== */}
+        {activeTab === 'nonfin' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-lg border border-stone-200 overflow-hidden">
+              <div className="bg-stone-100 p-4 border-b">
+                <h3 className="font-serif font-bold text-lg text-stone-900">Facteurs non financiers</h3>
+                <p className="text-xs text-stone-500 mt-1">Ce que les chiffres ne capturent pas, mais qui pèse dans une décision de vie.</p>
+              </div>
+              <div className="divide-y divide-stone-200">
+                {[
+                  { cat: 'Temps', rp: '~5 h/an (entretien occasionnel)', duplex: '50-150 h/an (gestion locataires, réparations)', loc: '50-150 h/an (idem + déplacements)', bourse: '~2 h/an (vérification annuelle d\'un ETF)' },
+                  { cat: 'Flexibilité géographique', rp: 'Faible : vendre prend 3-6 mois', duplex: 'Très faible : vendre ou gérer à distance difficile', loc: 'Faible : idem', bourse: 'Très élevée : vente en 2 jours' },
+                  { cat: 'Stress', rp: 'Modéré : rénovations, voisinage', duplex: 'Élevé : locataires, retards de paiement, conflits', loc: 'Élevé : idem', bourse: 'Modéré : volatilité, corrections boursières' },
+                  { cat: 'Diversification', rp: 'Actif unique concentré sur 1 quartier', duplex: 'Actif unique (+ locataires dépendants)', loc: 'Actif unique', bourse: 'ETF indiciel = 500+ entreprises, plusieurs secteurs' },
+                  { cat: 'Ancrage communautaire', rp: 'Fort (tu es propriétaire d\'un lieu)', duplex: 'Fort + relations locataires', loc: 'Variable', bourse: 'Nul (abstrait)' },
+                  { cat: 'Protection contre inflation', rp: 'Bonne (le bien et les coûts grimpent ensemble)', duplex: 'Très bonne (loyers s\'ajustent)', loc: 'Très bonne', bourse: 'Variable selon l\'inflation vs taux' },
+                  { cat: 'Effet de levier', rp: 'Élevé (20 % contrôle 100 %)', duplex: 'Très élevé', loc: 'Élevé', bourse: 'Aucun (sauf marge, risqué)' },
+                ].map((row, i) => (
+                  <div key={i} className="p-4 grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
+                    <div className="font-semibold text-stone-900">{row.cat}</div>
+                    <div className="text-stone-600"><span className="text-[10px] uppercase text-stone-400">RP</span><br/>{row.rp}</div>
+                    <div className="text-stone-600"><span className="text-[10px] uppercase text-stone-400">Duplex</span><br/>{row.duplex}</div>
+                    <div className="text-stone-600"><span className="text-[10px] uppercase text-stone-400">Locatif</span><br/>{row.loc}</div>
+                    <div className="text-stone-600"><span className="text-[10px] uppercase text-stone-400">Bourse</span><br/>{row.bourse}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===== PARAMÈTRES ===== */}
+        {activeTab === 'params' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Visible en mode débutant */}
+            <section className="bg-white rounded-lg border border-stone-200 p-5">
+              <h3 className="font-serif font-bold text-lg text-stone-900 mb-4 pb-2 border-b border-stone-200">Le bien</h3>
+              <Slider label="Prix du bien" value={h.prix} onChange={update('prix')} min={200000} max={800000} step={10000} format="money" />
+              <Slider label="Mise de fonds" value={h.miseFondsPct} onChange={update('miseFondsPct')} min={0.05} max={0.50} step={0.01} format="pct" />
+              <Slider label="Taux hypothécaire" value={h.tauxHypo} onChange={update('tauxHypo')} min={0.02} max={0.08} step={0.0025} format="pct" />
+              <Slider label="Horizon d'analyse (années)" value={h.horizon} onChange={update('horizon')} min={5} max={45} step={1} help="Tu peux aller jusqu'à 45 ans pour simuler l'âge de la retraite" />
+              <Slider label="Appréciation annuelle immo" value={h.apprec} onChange={update('apprec')} min={0.00} max={0.07} step={0.005} format="pct" sourceKey="apprecImmo" />
+              <Slider label="Rendement bourse annuel" value={h.rendement} onChange={update('rendement')} min={0.03} max={0.12} step={0.0025} format="pct" sourceKey="sp500" />
+            </section>
+
+            <section className="bg-white rounded-lg border border-stone-200 p-5">
+              <h3 className="font-serif font-bold text-lg text-stone-900 mb-4 pb-2 border-b border-stone-200">Location (pour bourse)</h3>
+              <Slider label="Loyer initial mensuel" value={h.loyerInitial} onChange={update('loyerInitial')} min={800} max={4000} step={50} format="money" sourceKey="loyerMtl" />
+              <Slider label="Augmentation annuelle loyer" value={h.augmLoyer} onChange={update('augmLoyer')} min={0} max={0.08} step={0.005} format="pct" sourceKey="talAjustement" help="Moyen TAL ~4 %, SCHL Montréal +7,2 % en 2025" />
+            </section>
+
+            <section className="bg-white rounded-lg border border-stone-200 p-5">
+              <h3 className="font-serif font-bold text-lg text-stone-900 mb-4 pb-2 border-b border-stone-200">Coûts récurrents</h3>
+              <Slider label="Frais condo mensuel" value={h.condoMens} onChange={update('condoMens')} min={0} max={800} step={25} format="money" />
+              <Slider label="Assurance habitation mensuel" value={h.assurMens} onChange={update('assurMens')} min={20} max={200} step={5} format="money" />
+              <Slider label="Entretien annuel (% du bien)" value={h.entretienPct} onChange={update('entretienPct')} min={0} max={0.03} step={0.0025} format="pct" help="Règle du pouce : 1 %/an" />
+              <Slider label="Inflation coûts généraux" value={h.inflationCouts} onChange={update('inflationCouts')} min={0} max={0.05} step={0.0025} format="pct" sourceKey="taxesMunicipales" />
+              <Slider label="Inflation assurance habitation" value={h.inflationAssur} onChange={update('inflationAssur')} min={0} max={0.12} step={0.005} format="pct" sourceKey="assurance" help="+7,3 % en 2024, +5,3 % en 2025 au Canada" />
+            </section>
+
+            {mode === 'avance' && (
+              <>
+                <section className="bg-white rounded-lg border border-stone-200 p-5">
+                  <h3 className="font-serif font-bold text-lg text-stone-900 mb-4 pb-2 border-b border-stone-200">Locatif pur (avancé)</h3>
+                  <Slider label="Mise de fonds locatif" value={h.miseFondsLocPct} onChange={update('miseFondsLocPct')} min={0.20} max={0.35} step={0.01} format="pct" />
+                  <Slider label="Taux hypo locatif" value={h.tauxHypoLoc} onChange={update('tauxHypoLoc')} min={0.025} max={0.085} step={0.0025} format="pct" />
+                  <Slider label="Loyer perçu initial" value={h.loyerPercuInitial} onChange={update('loyerPercuInitial')} min={800} max={3500} step={50} format="money" />
+                  <Slider label="Vacance + impayés" value={h.vacancePct} onChange={update('vacancePct')} min={0} max={0.15} step={0.01} format="pct" />
+                  <Slider label="Frais de gestion" value={h.gestionPct} onChange={update('gestionPct')} min={0} max={0.10} step={0.005} format="pct" />
+                </section>
+
+                <section className="bg-white rounded-lg border border-stone-200 p-5">
+                  <h3 className="font-serif font-bold text-lg text-stone-900 mb-4 pb-2 border-b border-stone-200">Vente & amortissement (avancé)</h3>
+                  <Slider label="Amortissement (années)" value={h.amortissement} onChange={update('amortissement')} min={15} max={30} step={1} />
+                  <Slider label="Commission vente" value={h.commVente} onChange={update('commVente')} min={0} max={0.07} step={0.005} format="pct" />
+                  <Slider label="Assurance locataire mensuel" value={h.assurLoc} onChange={update('assurLoc')} min={10} max={60} step={5} format="money" />
+                  <Slider label="Inflation générale (pour $ réels)" value={h.inflationGen} onChange={update('inflationGen')} min={0.01} max={0.05} step={0.0025} format="pct" />
+                </section>
+
+                <section className="bg-stone-100 rounded-lg border border-stone-300 p-5">
+                  <h3 className="font-serif font-bold text-lg text-stone-900 mb-4 pb-2 border-b border-stone-300">Valeurs calculées</h3>
+                  <div className="space-y-2 text-sm font-mono">
+                    <div className="flex justify-between"><span className="text-stone-600 font-sans">Taxe de bienvenue</span><span className="tabular-nums">{fmtMoney(derives.taxeBienvenue)}</span></div>
+                    <div className="flex justify-between"><span className="text-stone-600 font-sans">Taxe municipale/an</span><span className="tabular-nums">{fmtMoney(derives.taxeMuniAn)}</span></div>
+                    <div className="flex justify-between"><span className="text-stone-600 font-sans">Taxe scolaire/an</span><span className="tabular-nums">{fmtMoney(derives.taxeScolaireAn)}</span></div>
+                    <div className="flex justify-between"><span className="text-stone-600 font-sans">Versement hypo/mois</span><span className="tabular-nums">{fmtMoney(derives.versementMens)}</span></div>
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* ===== GLOSSAIRE MODAL ===== */}
+      {showGlossaire && (
+        <div className="fixed inset-0 bg-stone-900/75 z-50 flex items-center justify-center p-4" onClick={() => setShowGlossaire(false)}>
+          <div className="bg-stone-50 max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-stone-900 text-stone-100 p-4 flex justify-between items-center">
+              <h2 className="font-serif font-bold text-lg">Lexique financier</h2>
+              <button onClick={() => setShowGlossaire(false)} className="text-stone-400 hover:text-white text-2xl leading-none">×</button>
+            </div>
+            <dl className="p-6 space-y-4">
+              {GLOSSAIRE.map((g, i) => (
+                <div key={i} className="border-b border-stone-200 pb-3 last:border-0">
+                  <dt className="font-serif font-bold text-stone-900 mb-1">{g.terme}</dt>
+                  <dd className="text-sm text-stone-600">{g.def}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Footer ===== */}
+      <footer className="border-t border-stone-200 bg-stone-100 mt-16">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <p className="text-xs text-stone-500 italic mb-3">
+            Modèle à but éducatif. Ne constitue pas un conseil financier. Les projections à long terme sont par nature incertaines.
+          </p>
+          <details className="text-xs">
+            <summary className="cursor-pointer text-stone-600 font-semibold">Sources et méthodologie</summary>
+            <ul className="mt-3 space-y-2 text-stone-500">
+              {Object.entries(SOURCES).map(([k, s]) => (
+                <li key={k}><a href={s.url} target="_blank" rel="noopener noreferrer" className="text-amber-700 hover:underline">{s.label}</a> — <span className="italic">{s.note}</span></li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      </footer>
+    </div>
+  );
+}
