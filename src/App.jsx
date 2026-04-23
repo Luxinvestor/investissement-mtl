@@ -631,6 +631,27 @@ function Tooltip2({ text, children, below = false }) {
   );
 }
 
+function QuestionTip({ text }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative shrink-0 inline-block align-middle ml-1">
+      <button
+        type="button"
+        className="text-stone-400 hover:text-stone-600 text-[10px] leading-none w-3.5 h-3.5 inline-flex items-center justify-center rounded-full border border-stone-300 hover:border-stone-500 transition-colors"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onClick={() => setOpen(s => !s)}
+      >?</button>
+      {open && (
+        <span className="absolute z-50 top-full left-0 mt-2 w-64 p-3 bg-stone-900 text-stone-100 text-xs rounded-lg shadow-xl font-sans leading-relaxed pointer-events-none">
+          {text}
+          <span className="absolute bottom-full left-4 border-4 border-transparent border-b-stone-900" />
+        </span>
+      )}
+    </span>
+  );
+}
+
 function MiniSlider({ label, value, onChange, min, max, step, format, tooltip }) {
   const fmt = (v) => format === 'pct' ? `${(v * 100).toFixed(1)}%`
     : format === 'money' ? `${Math.round(v / 1000)}k $`
@@ -878,7 +899,7 @@ const defaultH = {
   revenuRetraiteEstime: 45000,
   inflationGen: 0.025,
   // CELI/REER - seront calculés par défaut mais ajustables
-  anneeArriveeCanada: 2016,
+  anneeArriveeCanada: 2009,
   reerDisponibleInitial: 20000,
   inclusionGainCap: 0.50,
   // Locatif
@@ -909,14 +930,16 @@ export default function App() {
   const [showRevenusSansVente, setShowRevenusSansVente] = useState(false);
   const [locLoyerDeduit, setLocLoyerDeduit] = useState(true);
   const [showSources, setShowSources] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState(1);
+
   const [showFAQ, setShowFAQ] = useState(false);
   const [showCGU, setShowCGU] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('imtl_seen'));
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('imtl_dark') === '1');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [introAgeStr, setIntroAgeStr] = useState(() => String(defaultH.ageActuel));
-  const [introAnneeStr, setIntroAnneeStr] = useState(() => String(defaultH.anneeArriveeCanada));
+  const [introHorizonStr, setIntroHorizonStr] = useState(() => String(defaultH.horizon));
+  const [introCapitalStr, setIntroCapitalStr] = useState(() => String(Math.round(defaultH.prix * defaultH.miseFondsPct)));
+  const [introLoyerStr, setIntroLoyerStr] = useState(() => String(defaultH.loyerInitial));
+  const [introSalaireStr, setIntroSalaireStr] = useState(() => String(defaultH.salaireActuel));
   const [rawH, setRawH] = useState(() => {
     const saved = localStorage.getItem('imtl_prefs');
     if (saved) { try { return { ...defaultH, ...JSON.parse(saved) }; } catch { return defaultH; } }
@@ -1024,8 +1047,10 @@ export default function App() {
   // Sync intro strings when modal opens
   useEffect(() => {
     if (showOnboarding) {
-      setIntroAgeStr(String(rawH.ageActuel));
-      setIntroAnneeStr(String(rawH.anneeArriveeCanada));
+      setIntroHorizonStr(String(rawH.horizon));
+      setIntroCapitalStr(String(Math.round(rawH.prix * rawH.miseFondsPct)));
+      setIntroLoyerStr(String(rawH.loyerInitial));
+      setIntroSalaireStr(String(rawH.salaireActuel));
     }
   }, [showOnboarding]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1460,9 +1485,9 @@ export default function App() {
                     <YAxis stroke="#78716c" tickFormatter={(v) => `${v.toLocaleString('fr-CA')} $`} tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(v) => `${Math.round(v).toLocaleString('fr-CA')} $/mois`} labelFormatter={(l) => `Année ${l}`} />
                     <Legend wrapperStyle={{ paddingTop: '12px', fontSize: '11px' }} />
-                    <Line type="monotone" dataKey="Locatif pur ($/mois net)" stroke="#7c2d12" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="Multiplex ($/mois net)" stroke="#0369a1" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="Bourse (règle 4 %, /mois)" stroke="#b45309" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Locatif pur ($/mois net)" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Multiplex ($/mois net)" stroke="#2563eb" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Bourse (règle 4 %, /mois)" stroke="#059669" strokeWidth={2} dot={false} />
                   </LineChart>
                 ) : (
                   <LineChart data={timeSeriesData} margin={{ bottom: 10 }}>
@@ -1471,10 +1496,10 @@ export default function App() {
                     <YAxis stroke="#78716c" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(v) => fmtMoney(v)} />
                     <Legend wrapperStyle={{ paddingTop: '12px', fontSize: '11px' }} />
-                    <Line type="monotone" dataKey="Résid. principale" stroke="#059669" strokeWidth={2} dot={false} />
-                    {mode === 'avance' && <Line type="monotone" dataKey="Multiplex" stroke="#0369a1" strokeWidth={2} dot={false} />}
-                    <Line type="monotone" dataKey="Je loue mon bien" stroke="#7c2d12" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="Bourse" stroke="#b45309" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Résid. principale" stroke="#0891b2" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Multiplex" stroke="#2563eb" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Je loue mon bien" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="Bourse" stroke="#059669" strokeWidth={2} dot={false} />
                   </LineChart>
                 )}
               </ResponsiveContainer>
@@ -1508,10 +1533,10 @@ export default function App() {
                       <ReferenceLine y={0} stroke="#a8a29e" strokeDasharray="4 2" />
                       <Tooltip formatter={(v) => `${Math.round(v).toLocaleString('fr-CA')} $/mois`} labelFormatter={(l) => `Année ${l}`} />
                       <Legend wrapperStyle={{ paddingTop: '12px', fontSize: '11px' }} />
-                      <Line type="monotone" dataKey="RP (sortie/mois)" stroke="#059669" strokeWidth={2} dot={false} />
-                      <Line type="monotone" dataKey="Multiplex (net/mois)" stroke="#0369a1" strokeWidth={2} dot={false} />
-                      <Line type="monotone" dataKey="Locatif (net/mois)" stroke="#7c2d12" strokeWidth={2} dot={false} />
-                      <Line type="monotone" dataKey="Bourse (loyer/mois)" stroke="#b45309" strokeWidth={2} strokeDasharray="5 3" dot={false} />
+                      <Line type="monotone" dataKey="RP (sortie/mois)" stroke="#0891b2" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="Multiplex (net/mois)" stroke="#2563eb" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="Locatif (net/mois)" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="Bourse (loyer/mois)" stroke="#059669" strokeWidth={2} strokeDasharray="5 3" dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -1858,7 +1883,7 @@ export default function App() {
                   <YAxis stroke="#78716c" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                   <Tooltip formatter={(v) => fmtMoney(v)} />
                   <Legend wrapperStyle={{ paddingTop: '12px', fontSize: '11px' }} />
-                  <Line type="monotone" dataKey="valeurBien" name="Valeur du bien" stroke="#059669" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="valeurBien" name="Valeur du bien" stroke="#0891b2" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="soldeHypo" name="Solde hypo" stroke="#dc2626" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="equite" name="Équité" stroke="#b45309" strokeWidth={2} dot={false} />
                 </LineChart>
@@ -2566,10 +2591,10 @@ export default function App() {
       {/* ===== MODALE D'INTRODUCTION ===== */}
       {showOnboarding && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(28,25,23,0.75)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden" style={{ background: darkMode ? '#2a2726' : '#fafaf9' }}>
+          <div className="w-full max-w-sm rounded-2xl shadow-2xl" style={{ background: darkMode ? '#2a2726' : '#fafaf9' }}>
 
             {/* En-tête */}
-            <div className="px-6 pt-6 pb-5" style={{ background: 'linear-gradient(135deg, #292524 0%, #44403c 100%)' }}>
+            <div className="px-6 pt-6 pb-5 rounded-t-2xl" style={{ background: 'linear-gradient(135deg, #292524 0%, #44403c 100%)' }}>
               <div className="flex items-center gap-3 mb-3">
                 <LogoStocksStone size={34} />
                 <div>
@@ -2582,91 +2607,169 @@ export default function App() {
               <p className="text-sm leading-relaxed" style={{ color: '#d4cfc8' }}>
                 Comparez l'achat immobilier et l'investissement en bourse selon votre situation réelle — avec la fiscalité québécoise 2026.
               </p>
+              <div className="mt-3 grid grid-cols-4 gap-1">
+                {[
+                  { Icon: IconRP,        label: 'Résid.\nprinc.',    color: '#a8a29e' },
+                  { Icon: IconMultiplex, label: 'Multi-\nplex',     color: '#a8a29e' },
+                  { Icon: IconLocatif,   label: 'Locatif\npur',     color: '#a8a29e' },
+                  { Icon: IconBourse,    label: 'En\nbourse',       color: '#a8a29e' },
+                ].map(({ Icon, label, color }) => (
+                  <div key={label} className="flex flex-col items-center gap-1 py-1.5 rounded-lg text-center" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                    <span style={{ color }}><Icon size={16} /></span>
+                    <span className="text-[9px] leading-tight whitespace-pre-line" style={{ color: '#c7c2bc' }}>{label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Formulaire */}
             <div className="px-6 py-5 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                {/* Âge */}
-                <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">Votre âge</label>
+              <div>
+                <label className="flex items-center gap-1 text-xs font-semibold text-stone-700 mb-1">
+                  Horizon de comparaison
+                  <QuestionTip text="Nombre d'années sur lequel comparer les stratégies. C'est le paramètre qui change le plus les résultats : sur 10 ans, l'immo peine à amortir ses coûts d'entrée ; sur 25 ans, les intérêts composés jouent pleinement." />
+                </label>
+                <div className="relative">
                   <input
                     type="text" inputMode="numeric"
-                    value={introAgeStr}
+                    value={introHorizonStr}
                     onChange={e => {
-                      setIntroAgeStr(e.target.value);
+                      setIntroHorizonStr(e.target.value);
                       const v = parseInt(e.target.value);
-                      if (!isNaN(v) && v >= 1) setRawH(prev => ({ ...prev, ageActuel: v }));
+                      if (!isNaN(v) && v >= 1) setRawH(prev => ({ ...prev, horizon: v }));
                     }}
                     onBlur={() => {
-                      const v = parseInt(introAgeStr);
-                      const clamped = isNaN(v) ? rawH.ageActuel : Math.max(18, Math.min(75, v));
-                      setRawH(prev => ({ ...prev, ageActuel: clamped }));
-                      setIntroAgeStr(String(clamped));
+                      const v = parseInt(introHorizonStr);
+                      const clamped = isNaN(v) ? rawH.horizon : Math.max(5, Math.min(40, v));
+                      setRawH(prev => ({ ...prev, horizon: clamped }));
+                      setIntroHorizonStr(String(clamped));
                     }}
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-400"
+                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-400 pr-10"
                   />
-                </div>
-                {/* Année arrivée Canada */}
-                <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">Année d'arrivée au Canada</label>
-                  <input
-                    type="text" inputMode="numeric"
-                    value={introAnneeStr}
-                    onChange={e => {
-                      setIntroAnneeStr(e.target.value);
-                      const v = parseInt(e.target.value);
-                      if (!isNaN(v) && v >= 1000) setRawH(prev => ({ ...prev, anneeArriveeCanada: v }));
-                    }}
-                    onBlur={() => {
-                      const v = parseInt(introAnneeStr);
-                      const clamped = isNaN(v) ? rawH.anneeArriveeCanada : Math.max(1990, Math.min(2026, v));
-                      setRawH(prev => ({ ...prev, anneeArriveeCanada: clamped }));
-                      setIntroAnneeStr(String(clamped));
-                    }}
-                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-400"
-                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-500">ans</span>
                 </div>
               </div>
 
               {/* Capital disponible */}
               <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">Capital disponible à investir</label>
+                <label className="flex items-center gap-1 text-xs font-semibold text-stone-700 mb-1">
+                  Capital disponible à investir
+                  <QuestionTip text={`Votre mise de fonds ou épargne mobilisable. Pour l'immobilier, elle détermine la valeur du bien (actuellement ${Math.round(rawH.prix).toLocaleString('fr-CA')} $). Pour la bourse, c'est votre capital de départ.`} />
+                </label>
                 <div className="relative">
                   <input
-                    type="number" min={20000} max={400000} step={5000}
-                    value={Math.round(rawH.prix * rawH.miseFondsPct)}
-                    onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) setRawH(prev => ({ ...prev, prix: Math.round(v / prev.miseFondsPct) })); }}
+                    type="text" inputMode="numeric"
+                    value={introCapitalStr}
+                    onChange={e => {
+                      setIntroCapitalStr(e.target.value);
+                      const v = parseInt(e.target.value);
+                      if (!isNaN(v) && v > 0) setRawH(prev => ({ ...prev, prix: Math.round(v / prev.miseFondsPct) }));
+                    }}
+                    onBlur={() => {
+                      const v = parseInt(introCapitalStr);
+                      const clamped = isNaN(v) ? Math.round(rawH.prix * rawH.miseFondsPct) : Math.max(20000, Math.min(400000, v));
+                      setRawH(prev => ({ ...prev, prix: Math.round(clamped / prev.miseFondsPct) }));
+                      setIntroCapitalStr(String(clamped));
+                    }}
                     className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-400 pr-6"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-500">$</span>
                 </div>
-                <div className="text-[10px] text-stone-600 mt-0.5">Mise de fonds ou épargne mobilisable → bien immobilier équivalent : {Math.round(rawH.prix).toLocaleString('fr-CA')} $</div>
               </div>
 
-              {/* Mini-aperçu bourse vs RP */}
+              {/* Loyer mensuel actuel */}
+              <div>
+                <label className="flex items-center gap-1 text-xs font-semibold text-stone-700 mb-1">
+                  Votre loyer mensuel actuel
+                  <QuestionTip text="Dans le scénario Locatif pur, vous êtes aussi locataire ailleurs — ce coût est soustrait du bénéfice final. Dans le scénario Bourse, il réduit le surplus mensuel que vous investissez." />
+                </label>
+                <div className="relative">
+                  <input
+                    type="text" inputMode="numeric"
+                    value={introLoyerStr}
+                    onChange={e => {
+                      setIntroLoyerStr(e.target.value);
+                      const v = parseInt(e.target.value);
+                      if (!isNaN(v) && v > 0) setRawH(prev => ({ ...prev, loyerInitial: v }));
+                    }}
+                    onBlur={() => {
+                      const v = parseInt(introLoyerStr);
+                      const clamped = isNaN(v) ? rawH.loyerInitial : Math.max(500, Math.min(8000, v));
+                      setRawH(prev => ({ ...prev, loyerInitial: clamped }));
+                      setIntroLoyerStr(String(clamped));
+                    }}
+                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-400 pr-6"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-500">$/mois</span>
+                </div>
+              </div>
+
+              {/* Salaire brut */}
+              <div>
+                <label className="flex items-center gap-1 text-xs font-semibold text-stone-700 mb-1">
+                  Salaire brut annuel
+                  <QuestionTip text="Détermine votre taux marginal d'imposition (TMI), utilisé pour calculer la valeur des déductions REER, l'impôt sur les revenus locatifs et sur les gains en capital." />
+                </label>
+                <div className="relative">
+                  <input
+                    type="text" inputMode="numeric"
+                    value={introSalaireStr}
+                    onChange={e => {
+                      setIntroSalaireStr(e.target.value);
+                      const v = parseInt(e.target.value);
+                      if (!isNaN(v) && v > 0) setRawH(prev => ({ ...prev, salaireActuel: v }));
+                    }}
+                    onBlur={() => {
+                      const v = parseInt(introSalaireStr);
+                      const clamped = isNaN(v) ? rawH.salaireActuel : Math.max(20000, Math.min(300000, v));
+                      setRawH(prev => ({ ...prev, salaireActuel: clamped }));
+                      setIntroSalaireStr(String(clamped));
+                    }}
+                    className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm font-mono text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-400 pr-6"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-500">$</span>
+                </div>
+              </div>
+
+              {/* Mini-aperçu 4 stratégies */}
               {(() => {
                 const vals = [
-                  { label: 'Résidence principale', value: rp.beneficeNet, color: '#78716c' },
-                  { label: 'Bourse (VEQT)', value: bourse.beneficeNet, color: '#059669' },
+                  { label: 'Résidence principale',       value: rp.beneficeNet,    color: '#0891b2', Icon: IconRP,        note: null },
+                  { label: 'Multiplex (vous y habitez)', value: duplex.beneficeNet, color: '#2563eb', Icon: IconMultiplex, note: null },
+                  { label: 'Locatif pur',               value: locLoyerDeduit ? loc.beneficeNet - loc.loyerPayeCum : loc.beneficeNet, color: '#8b5cf6', Icon: IconLocatif, note: 'votre loyer déduit' },
+                  { label: 'Bourse (VEQT)',             value: bourse.beneficeNet, color: '#059669', Icon: IconBourse,   note: 'surplus investi chaque mois' },
                 ];
                 const maxVal = Math.max(...vals.map(v => Math.abs(v.value)), 1);
                 return (
-                  <div className="bg-stone-50 rounded-xl border border-stone-200 px-4 pt-3 pb-2">
-                    <div className="space-y-2">
-                      {vals.map(v => (
-                        <div key={v.label}>
-                          <div className="flex justify-between text-[10px] text-stone-600 mb-0.5">
-                            <span>{v.label}</span>
-                            <span className="font-mono font-semibold" style={{ color: v.color }}>{fmtMoney(v.value)}</span>
-                          </div>
-                          <div className="h-2 bg-stone-200 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (v.value / maxVal) * 100)}%`, background: v.color }} />
-                          </div>
-                        </div>
-                      ))}
+                  <div className="bg-stone-50 rounded-xl border border-stone-200 overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-stone-400" style={{ background: '#44403c' }}>
+                      <p className="text-[11px] font-semibold text-center" style={{ color: '#e7e5e4' }}>Bénéfice net après {h.horizon} ans — après revente et impôts</p>
                     </div>
-                    <p className="text-[9px] text-stone-600 mt-2 text-center">Bénéfice net estimé sur {h.horizon} ans après revente · résultats indicatifs</p>
+                    <div className="px-4 pt-3 pb-2">
+                      <div className="space-y-2">
+                      {vals.map(v => {
+                        const isNeg = v.value < 0;
+                        const barColor = isNeg ? '#f87171' : v.color;
+                        const barWidth = Math.min(100, (Math.abs(v.value) / maxVal) * 100);
+                        return (
+                          <div key={v.label}>
+                            <div className="flex justify-between text-[10px] text-stone-600 mb-0.5">
+                              <span className="flex items-center gap-1 min-w-0">
+                                <span style={{ color: isNeg ? '#f87171' : v.color }}><v.Icon size={10} /></span>
+                                <span>{v.label}</span>
+                                {v.note && <span className="text-[8px] text-stone-400 italic">· {v.note}</span>}
+                              </span>
+                              <span className="font-mono font-semibold ml-2 flex-shrink-0" style={{ color: isNeg ? '#ef4444' : v.color }}>{fmtMoney(v.value)}</span>
+                            </div>
+                            <div className="h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${barWidth}%`, background: barColor }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                      </div>
+                      <p className="text-[9px] text-stone-400 mt-2 mb-1 text-center">Résultats indicatifs selon vos paramètres</p>
+                    </div>
                   </div>
                 );
               })()}
@@ -2678,13 +2781,13 @@ export default function App() {
                 onMouseEnter={e => e.currentTarget.style.background = '#292524'}
                 onMouseLeave={e => e.currentTarget.style.background = '#1c1917'}
               >
-                Voir mes résultats →
+                Voir le détail →
               </button>
               <button
-                onClick={() => { localStorage.setItem('imtl_seen', '1'); setShowOnboarding(false); }}
+                onClick={() => { localStorage.setItem('imtl_seen', '1'); setShowOnboarding(false); setActiveTab('params'); }}
                 className="w-full text-center text-xs text-stone-400 hover:text-stone-600 transition-colors py-1"
               >
-                Passer et explorer librement
+                Ajuster les paramètres →
               </button>
               <p className="text-[10px] text-stone-400 text-center">Aucune donnée collectée · tout reste dans votre navigateur</p>
             </div>
