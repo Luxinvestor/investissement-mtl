@@ -643,9 +643,10 @@ function QuestionTip({ text }) {
         onClick={() => setOpen(s => !s)}
       >?</button>
       {open && (
-        <span className="absolute z-50 top-full left-0 mt-2 w-64 p-3 bg-stone-900 text-stone-100 text-xs rounded-lg shadow-xl font-sans leading-relaxed pointer-events-none">
+        <span className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 w-56 p-3 bg-stone-900 text-stone-100 text-xs rounded-lg shadow-xl font-sans leading-relaxed"
+          style={{ maxWidth: 'calc(100vw - 2.5rem)' }}>
           {text}
-          <span className="absolute bottom-full left-4 border-4 border-transparent border-b-stone-900" />
+          <span className="absolute bottom-full left-1/2 -translate-x-1/2 border-4 border-transparent border-b-stone-900" />
         </span>
       )}
     </span>
@@ -2590,8 +2591,8 @@ export default function App() {
 
       {/* ===== MODALE D'INTRODUCTION ===== */}
       {showOnboarding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(28,25,23,0.75)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm rounded-2xl shadow-2xl" style={{ background: darkMode ? '#2a2726' : '#fafaf9' }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3" style={{ background: 'rgba(28,25,23,0.75)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm rounded-2xl shadow-2xl max-h-[92vh] overflow-y-auto" style={{ background: darkMode ? '#2a2726' : '#fafaf9' }}>
 
             {/* En-tête */}
             <div className="px-6 pt-6 pb-5 rounded-t-2xl" style={{ background: 'linear-gradient(135deg, #292524 0%, #44403c 100%)' }}>
