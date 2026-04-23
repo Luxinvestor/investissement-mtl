@@ -1,7 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <rect width="32" height="32" rx="6" fill="#1c1917"/>
-  <rect x="3" y="15" width="11" height="14" rx="1" fill="#f5f5f4"/>
-  <path d="M2 16L8.5 8 15 16" fill="#f5f5f4"/>
-  <polyline points="17,24 21,16 24,20 29,10" stroke="#10b981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <circle cx="29" cy="10" r="1.8" fill="#10b981"/>
+  <!-- Barres histogramme (adapté du viewBox 36×32 → 32×28, décalé y+2) -->
+  <rect x="1"  y="18" width="5" height="9"  rx="1" fill="#059669" opacity="0.75"/>
+  <rect x="8"  y="12" width="5" height="15" rx="1" fill="#059669" opacity="0.88"/>
+  <rect x="15" y="16" width="5" height="11" rx="1" fill="#059669" opacity="0.75"/>
+  <rect x="22" y="7"  width="5" height="20" rx="1" fill="#059669"/>
+  <!-- Toit de maison -->
+  <polyline points="19.5,8 24.5,2 29.5,8" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>

@@ -28,3 +28,6 @@ En mode avancé, les nouveau paramètres liés à la retraite doivent aussi appa
 Bien expliquer dans le modale d’intro ce qu’il s’apprête à faire 
 Changer la mention « je reste loc + bourse » pour juste bourse
 Afficher des logos dans les résultats et dans les onglets 
+
+git config --global user.email "lucmlambert@gmail.com"
+git config --global user.name "Luxinvestor"
