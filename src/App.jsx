@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine, PieChart, Pie } from 'recharts';
 
 /* ============================================================
    SOURCES CENTRALISÉES
@@ -279,7 +279,8 @@ function computeScenarios(h) {
 
     // Coûts récurrents totaux (immeuble)
     const entretienAn = valDebut * entretienPct; // croît avec l'appréciation, pas réinflaté
-    const coutsImmeuble = (condoMens * 12 + assurMens * 12 * 1.3 + taxeMuniAn * (prixDuplex / prix) + taxeScolaireAn * (prixDuplex / prix)) * Math.pow(1 + inflationCouts, y - 1) + entretienAn;
+    const assurMultiplier = 1 + nbLogementsLoues * 0.3;
+    const coutsImmeuble = (condoMens * 12 + assurMens * 12 * assurMultiplier + taxeMuniAn * (prixDuplex / prix) + taxeScolaireAn * (prixDuplex / prix)) * Math.pow(1 + inflationCouts, y - 1) + entretienAn;
 
     // Revenus locatifs (sur les logements loués)
     const loyerBrut = loyerPercuInitial * 12 * nbLogementsLoues * Math.pow(1 + augmLoyer, y - 1);
@@ -653,6 +654,54 @@ function QuestionTip({ text }) {
   );
 }
 
+function RisqueBadge({ niveau }) {
+  const cfg = {
+    'Faible':       { bg: '#dcfce7', text: '#15803d' },
+    'Moyen':        { bg: '#fef9c3', text: '#854d0e' },
+    'Moyen-élevé':  { bg: '#fed7aa', text: '#9a3412' },
+    'Élevé':        { bg: '#fee2e2', text: '#991b1b' },
+  }[niveau] ?? { bg: '#f3f4f6', text: '#374151' };
+  return (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: cfg.bg, color: cfg.text }}>
+      {niveau}
+    </span>
+  );
+}
+
+function DonutDepenses({ slices, note }) {
+  const total = slices.reduce((s, x) => s + x.value, 0);
+  return (
+    <div className="bg-white rounded-lg border border-stone-200 p-5">
+      <h3 className="text-sm font-bold text-stone-900 mb-4">Dépenses mensuelles — année 1</h3>
+      <div className="flex flex-col sm:flex-row items-center gap-5">
+        <div style={{ width: 160, height: 160, flexShrink: 0 }}>
+          <PieChart width={160} height={160}>
+            <Pie data={slices} cx={80} cy={80} innerRadius={48} outerRadius={72} dataKey="value" paddingAngle={2}>
+              {slices.map((s, i) => <Cell key={i} fill={s.color} />)}
+            </Pie>
+          </PieChart>
+        </div>
+        <div className="flex-1 w-full space-y-1.5 text-xs">
+          {slices.map((s, i) => (
+            <div key={i} className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: s.color }} />
+                <span className="truncate text-stone-700">{s.label}</span>
+              </span>
+              <span className="font-mono text-stone-800 flex-shrink-0">{Math.round(s.value).toLocaleString('fr-CA')} $</span>
+            </div>
+          ))}
+          <div className="border-t border-stone-200 pt-1.5 flex justify-between font-semibold text-stone-900">
+            <span>Total / mois</span>
+            <span className="font-mono">{Math.round(total).toLocaleString('fr-CA')} $</span>
+          </div>
+          {note && <p className="text-[10px] text-stone-400 pt-0.5">{note}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MiniSlider({ label, value, onChange, min, max, step, format, tooltip }) {
   const fmt = (v) => format === 'pct' ? `${(v * 100).toFixed(1)}%`
     : format === 'money' ? `${Math.round(v / 1000)}k $`
@@ -793,7 +842,7 @@ const GLOSSAIRE = [
   { terme: 'Amortissement hypothécaire', def: 'Durée pour rembourser totalement l\'hypothèque. Standard : 25 ans. Chaque versement mensuel contient une portion d\'intérêt (vraie dépense) et une portion de capital (qui t\'appartient).' },
   { terme: 'Équité', def: 'La valeur actuelle du bien moins le solde hypothécaire. C\'est ta "vraie" richesse immobilière. Commence petite, grossit à mesure que tu rembourses + le bien prend de la valeur.' },
   { terme: 'Cashflow locatif', def: 'Loyers reçus moins toutes les dépenses (hypothèque, condo, taxes, entretien, assurance, impôt). Peut être négatif les premières années.' },
-  { terme: 'Vacance', def: 'Pourcentage du temps où le logement locatif n\'a pas de locataire. Varie entre 2 % et 10 % selon le secteur. Standard prudent : 5 %.' },
+  { terme: 'Logement vacant', def: 'Pourcentage du temps où le logement locatif n\'a pas de locataire. Varie entre 2 % et 10 % selon le secteur. Standard prudent : 5 %.' },
   { terme: 'Dollars réels vs nominaux', def: 'Les dollars "nominaux" sont les montants bruts en 2050. Les dollars "réels" ajustent pour l\'inflation pour refléter le pouvoir d\'achat d\'aujourd\'hui. À 2,5 % d\'inflation, 1 000 $ en 2051 = ~540 $ de 2026.' },
   { terme: 'Facteur d\'appréciation', def: 'Taux annuel de hausse du prix d\'une maison. Montréal : moyenne historique ~3-4 %/an, mais +46 % pour les condos sur 2020-2025 selon l\'APCIQ (période exceptionnelle).' },
 ];
@@ -839,8 +888,8 @@ const FAQ = [
     r: "Loyers reçus moins toutes les dépenses (versement hypothécaire, frais de condo, taxes, entretien, assurance, impôt sur revenus locatifs). Il est souvent négatif les premières années à Montréal — c'est normal. La richesse vient principalement de l'appréciation du bien et du remboursement d'hypothèque."
   },
   {
-    q: "Pourquoi y a-t-il un taux de vacance dans les calculs ?",
-    r: "Le taux de vacance représente le pourcentage du temps où votre logement n'a pas de locataire (recherche de locataire, rénovation, impayés). À Montréal, il varie entre 2 % et 5 %. Le modèle utilise 5 % par défaut par prudence. Cela réduit directement vos revenus locatifs annuels."
+    q: "Pourquoi y a-t-il un taux de logement vacant dans les calculs ?",
+    r: "Le taux de logement vacant représente le pourcentage du temps où votre logement n'a pas de locataire (recherche de locataire, rénovation, impayés). À Montréal, il varie entre 2 % et 5 %. Le modèle utilise 5 % par défaut par prudence. Cela réduit directement vos revenus locatifs annuels."
   },
   {
     q: "Quelle est la différence entre dollars d'aujourd'hui et dollars nominaux ?",
@@ -998,7 +1047,8 @@ export default function App() {
   // Coûts mensuels nets an 1 (pour tableau comparatif)
   const coutMensuelRP = rp.versementMens + h.condoMens + h.assurMens + derives.taxeMuniAn / 12 + derives.taxeScolaireAn / 12 + h.prix * h.entretienPct / 12;
   const loyerNetDuplexMens = h.loyerPercuInitial * h.nbLogementsLoues * (1 - h.vacancePct) * (1 - h.gestionPct);
-  const coutMensuelDuplexBrut = duplex.versementMens + h.condoMens + h.assurMens * 1.3 + (derives.taxeMuniAn * duplex.prixDuplex / h.prix) / 12 + (derives.taxeScolaireAn * duplex.prixDuplex / h.prix) / 12 + duplex.prixDuplex * h.entretienPct / 12;
+  const assurDuplexMult = 1 + h.nbLogementsLoues * 0.3;
+  const coutMensuelDuplexBrut = duplex.versementMens + h.condoMens + h.assurMens * assurDuplexMult + (derives.taxeMuniAn * duplex.prixDuplex / h.prix) / 12 + (derives.taxeScolaireAn * duplex.prixDuplex / h.prix) / 12 + duplex.prixDuplex * h.entretienPct / 12;
   const coutMensuelDuplexNet = coutMensuelDuplexBrut - loyerNetDuplexMens;
   const loyerNetLocMens = h.loyerPercuInitial * (1 - h.vacancePct) * (1 - h.gestionPct);
   const coutMensuelLocBrut = loc.versementMens + h.condoMens + h.assurMens * 1.3 + derives.taxeMuniAn / 12 + derives.taxeScolaireAn / 12 + h.prix * h.entretienPct / 12;
@@ -1228,8 +1278,8 @@ export default function App() {
 
       {/* ===== Tabs (desktop) ===== */}
       <div className="max-w-7xl mx-auto px-4 md:px-6 pt-4 hidden sm:block">
+        {/* Ligne 1 — onglets principaux */}
         <div className="flex items-end border-b border-stone-200">
-          {/* Résultats : bouton spécial à gauche */}
           <button
             onClick={() => setActiveTab('comparison')}
             className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold transition-colors whitespace-nowrap flex-shrink-0 rounded-tl rounded-tr mr-1 ${
@@ -1239,19 +1289,13 @@ export default function App() {
             }`}
           ><IconChart size={14} /> Résultats</button>
 
-          {/* Onglets centraux */}
           {[
-            { id: 'profil', label: 'Mes infos', mode: 'all', icon: null },
-            { id: 'rp', label: 'Résidence principale', mode: 'all', icon: IconRP },
-            { id: 'duplex', label: 'Multiplex', mode: 'all', icon: IconMultiplex },
-            { id: 'loc', label: 'Je loue mon bien', mode: 'all', icon: IconLocatif },
-            { id: 'bourse', label: 'Bourse', mode: 'all', icon: IconBourse },
-            { id: 'nonfin', label: 'Non-financier', mode: 'all', icon: null },
-            { id: 'sensibilite', label: 'Sensibilité', mode: 'avance', icon: null },
-            { id: 'stress', label: 'Stress tests', mode: 'avance', icon: null },
-            { id: 'retraite', label: 'Retraite', mode: 'avance', icon: null },
-          ].filter(t => t.mode === 'all' || mode === 'avance').map(t => {
-            const isAvanceOnly = t.mode === 'avance';
+            { id: 'profil', label: 'Mes infos', icon: null },
+            { id: 'rp', label: 'Résid. principale', icon: IconRP },
+            { id: 'duplex', label: 'Multiplex', icon: IconMultiplex },
+            { id: 'loc', label: 'Locatif pur', icon: IconLocatif },
+            { id: 'bourse', label: 'Bourse', icon: IconBourse },
+          ].map(t => {
             const isActive = activeTab === t.id;
             const Icon = t.icon;
             return (
@@ -1259,13 +1303,7 @@ export default function App() {
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
-                  isActive
-                    ? isAvanceOnly
-                      ? 'border-b-2 border-slate-600 text-slate-800 -mb-px'
-                      : 'border-b-2 border-stone-700 text-stone-900 -mb-px'
-                    : isAvanceOnly
-                      ? 'text-slate-400 hover:text-slate-600'
-                      : 'text-stone-500 hover:text-stone-700'
+                  isActive ? 'border-b-2 border-stone-700 text-stone-900 -mb-px' : 'text-stone-500 hover:text-stone-700'
                 }`}
               >
                 {Icon && <Icon size={13} />}
@@ -1274,10 +1312,8 @@ export default function App() {
             );
           })}
 
-          {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Paramètres : bouton spécial à droite */}
           <button
             onClick={() => setActiveTab('params')}
             className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold transition-colors whitespace-nowrap flex-shrink-0 rounded-tl rounded-tr ${
@@ -1287,6 +1323,29 @@ export default function App() {
             }`}
           ><IconSettings size={14} /> Paramètres</button>
         </div>
+
+        {/* Ligne 2 — onglets mode avancé uniquement */}
+        {mode === 'avance' && (
+          <div className="flex items-end border-b border-slate-200 bg-slate-50">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400 px-3 self-center">Avancé</span>
+            {[
+              { id: 'nonfin', label: 'Non-financier' },
+              { id: 'sensibilite', label: 'Sensibilité' },
+              { id: 'stress', label: 'Stress tests' },
+              { id: 'retraite', label: 'Retraite' },
+            ].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
+                  activeTab === t.id
+                    ? 'border-b-2 border-slate-600 text-slate-900 -mb-px'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >{t.label}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ===== Navigation mobile — onglet actif + bouton menu ===== */}
@@ -1295,11 +1354,11 @@ export default function App() {
           { id: 'comparison', label: 'Résultats' },
           { id: 'profil', label: 'Mes infos' },
           { id: 'rp', label: 'Résidence principale' },
-          ...(mode === 'avance' ? [{ id: 'duplex', label: 'Multiplex' }] : []),
-          { id: 'loc', label: 'Je loue mon bien' },
+          { id: 'duplex', label: 'Multiplex' },
+          { id: 'loc', label: 'Locatif pur' },
           { id: 'bourse', label: 'Bourse' },
-          { id: 'nonfin', label: 'Non-financier' },
           ...(mode === 'avance' ? [
+            { id: 'nonfin', label: 'Non-financier' },
             { id: 'sensibilite', label: 'Sensibilité' },
             { id: 'stress', label: 'Stress tests' },
             { id: 'retraite', label: 'Retraite' },
@@ -1338,10 +1397,10 @@ export default function App() {
                 { id: 'profil', label: 'Mes infos' },
                 { id: 'rp', label: 'Résidence principale' },
                 { id: 'duplex', label: 'Multiplex' },
-                { id: 'loc', label: 'Je loue mon bien' },
+                { id: 'loc', label: 'Locatif pur' },
                 { id: 'bourse', label: 'Bourse' },
-                { id: 'nonfin', label: 'Non-financier' },
                 ...(mode === 'avance' ? [
+                  { id: 'nonfin', label: 'Non-financier' },
                   { id: 'sensibilite', label: 'Sensibilité' },
                   { id: 'stress', label: 'Stress tests' },
                   { id: 'retraite', label: 'Retraite' },
@@ -1544,12 +1603,11 @@ export default function App() {
               );
             })()}
 
-            {/* Tableau comparatif — en dernier */}
-            <details className="bg-white rounded-lg border border-stone-200 overflow-hidden">
-              <summary className="bg-stone-50 px-4 py-3 cursor-pointer font-semibold text-stone-800 hover:bg-stone-100 transition-colors">
-                Tableau comparatif détaillé
-                <span className="ml-2 text-xs font-normal text-stone-500">(cliquer pour développer)</span>
-              </summary>
+            {/* Tableau comparatif — toujours visible */}
+            <div className="bg-white rounded-lg border border-stone-200 overflow-hidden">
+              <div className="bg-stone-50 px-4 py-3 border-b border-stone-200">
+                <span className="font-semibold text-stone-800">Tableau comparatif</span>
+              </div>
               <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
                 <table className="w-full text-sm" style={{ minWidth: '640px' }}>
                   <thead className="bg-stone-50 text-xs uppercase tracking-wider text-stone-600">
@@ -1568,7 +1626,7 @@ export default function App() {
                       <td className="px-4 py-3 font-semibold">Résidence principale</td>
                       <td className="px-4 py-3 text-stone-600">Vous achetez et habitez. Mise de fonds + hypothèque.</td>
                       <td className="px-4 py-3 text-stone-600"><Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('Résidence principale'))?.def}>Exemption totale</Tooltip2></td>
-                      <td className="px-4 py-3 text-stone-600">Moyen (un actif unique)</td>
+                      <td className="px-4 py-3"><RisqueBadge niveau="Moyen" /></td>
                       <td className="px-4 py-3 text-stone-600">Faible (6 mois pour vendre)</td>
                       <td className="px-4 py-3 text-right font-mono text-stone-700">
                         <Tooltip2 text={`Versement ${fmtMoney(rp.versementMens)} + condo ${fmtMoney(h.condoMens)} + assurance ${fmtMoney(h.assurMens)} + taxes ${fmtMoney((derives.taxeMuniAn + derives.taxeScolaireAn) / 12)} + entretien ${fmtMoney(h.prix * h.entretienPct / 12)}`}>
@@ -1581,7 +1639,7 @@ export default function App() {
                       <td className="px-4 py-3 font-semibold">Multiplex</td>
                       <td className="px-4 py-3 text-stone-600">Vous habitez un logement, louez les autres. Levier accru.</td>
                       <td className="px-4 py-3 text-stone-600">Portion occupée exemptée, portion louée taxée</td>
-                      <td className="px-4 py-3 text-stone-600">Moyen-élevé</td>
+                      <td className="px-4 py-3"><RisqueBadge niveau="Moyen-élevé" /></td>
                       <td className="px-4 py-3 text-stone-600">Faible</td>
                       <td className="px-4 py-3 text-right font-mono text-stone-700">
                         <Tooltip2 text={`Charges brutes ${fmtMoney(coutMensuelDuplexBrut)} − loyers nets ${fmtMoney(loyerNetDuplexMens)} = coût net de logement`}>
@@ -1594,7 +1652,7 @@ export default function App() {
                       <td className="px-4 py-3 font-semibold">Je loue mon bien</td>
                       <td className="px-4 py-3 text-stone-600">Vous achetez un bien que vous louez entièrement. Vous habitez ailleurs comme locataire.</td>
                       <td className="px-4 py-3 text-stone-600">Revenus taxés + <Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('inclusion'))?.def}>50 % gain en capital</Tooltip2></td>
-                      <td className="px-4 py-3 text-stone-600">Élevé (gestion + vacance)</td>
+                      <td className="px-4 py-3"><RisqueBadge niveau="Élevé" /></td>
                       <td className="px-4 py-3 text-stone-600">Faible</td>
                       <td className="px-4 py-3 text-right font-mono text-stone-700">
                         <Tooltip2 text={`Votre loyer ${fmtMoney(h.loyerInitial)} + charges bien ${fmtMoney(coutMensuelLocBrut)} − loyer perçu net ${fmtMoney(loyerNetLocMens)}`}>
@@ -1607,7 +1665,7 @@ export default function App() {
                       <td className="px-4 py-3 font-semibold">Bourse</td>
                       <td className="px-4 py-3 text-stone-600">Vous restez locataire et placez l'équivalent de la mise de fonds + économies annuelles en bourse (CELI, REER, non-enr.).</td>
                       <td className="px-4 py-3 text-stone-600"><Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('CELI'))?.def}>CELI</Tooltip2> + <Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('REER'))?.def}>REER</Tooltip2> + <Tooltip2 text={GLOSSAIRE.find(g => g.terme.includes('non-enregistré'))?.def}>non-enr.</Tooltip2></td>
-                      <td className="px-4 py-3 text-stone-600">Moyen (ETF diversifiés)</td>
+                      <td className="px-4 py-3"><RisqueBadge niveau="Moyen" /></td>
                       <td className="px-4 py-3 text-stone-600">Élevée (vente en 2 jours)</td>
                       <td className="px-4 py-3 text-right font-mono text-stone-700">
                         <Tooltip2 text="Loyer mensuel payé — c'est votre seule sortie de caisse logement.">
@@ -1619,7 +1677,7 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
-            </details>
+            </div>
 
             {/* CTA vers paramètres */}
             <div className="flex items-center justify-between bg-stone-50 border border-stone-200 rounded-lg px-4 py-3">
@@ -1668,7 +1726,7 @@ export default function App() {
               <NumberInput label="Salaire brut annuel ($)" value={h.salaireActuel} onChange={update('salaireActuel')} min={20000} max={300000} step={1000} help={`→ Taux marginal d'imposition : ${(meta.tmiActuel * 100).toFixed(1)} %`} sourceKey="tmi2026" format="money" />
               {mode === 'avance' && (
                 <>
-                  <NumberInput label="Âge souhaité à la retraite" value={h.ageRetraite} onChange={update('ageRetraite')} min={40} max={75} step={1} help="Utilisé pour le calcul de décaissement (onglet Retraite)" />
+                  <NumberInput label="Âge souhaité à la retraite" value={h.ageRetraite} onChange={update('ageRetraite')} min={40} max={75} step={1} help="Moyenne canadienne : 64,6 ans (StatCan 2024). RRQ dès 60 ans (réduit) ou jusqu'à 70 ans (bonification +0,7 %/mois)." />
                   <NumberInput label="Revenu estimé à la retraite ($)" value={h.revenuRetraiteEstime} onChange={update('revenuRetraiteEstime')} min={15000} max={200000} step={1000} help={`Ce que vous pensez recevoir/an à la retraite (pension, REER, loyers, etc.). Sert à calculer votre taux d'imposition futur. → TMI retraite : ${(meta.tmiRetraite * 100).toFixed(1)} %`} format="money" />
                 </>
               )}
@@ -1841,6 +1899,14 @@ export default function App() {
               <MoneyCard label="Bénéfice net (après vente)" value={applyReel(rp.beneficeNet)} color={rp.beneficeNet >= 0 ? 'green' : 'red'} emphasis sublabel={dollarsReels ? "en $ d'aujourd'hui · après impôts" : 'après impôts'} tooltip={`Simulation sur ${h.horizon} ans avec vente du bien à la fin. Bénéfice net = produit de vente − solde hypothèque − commissions − coût initial − tous les intérêts payés (${fmtMoney(rp.interetsCum)}) − toutes les charges. Le gain en capital est exempté d'impôt (résidence principale).`} />
             </div>
 
+            <DonutDepenses slices={[
+              { label: 'Versement hypothécaire', value: rp.versementMens, color: '#0891b2' },
+              { label: 'Frais de condo', value: h.condoMens, color: '#67e8f9' },
+              { label: 'Assurance habitation', value: h.assurMens, color: '#a5f3fc' },
+              { label: 'Taxes (muni + sco.)', value: (derives.taxeMuniAn + derives.taxeScolaireAn) / 12, color: '#164e63' },
+              { label: 'Entretien estimé', value: h.prix * h.entretienPct / 12, color: '#0e7490' },
+            ]} />
+
             {/* Mode avancé : tableau détaillé des flux */}
             {mode === 'avance' && (
               <details className="bg-white rounded-lg border border-stone-200 overflow-hidden">
@@ -1921,7 +1987,8 @@ export default function App() {
         {/* ===== Multiplex ===== */}
         {activeTab === 'duplex' && (() => {
           const portionLocative = h.nbLogementsLoues / (h.nbLogementsLoues + 1);
-          const coutMensuelDuplex = duplex.versementMens + h.condoMens + h.assurMens * 1.3 + (derives.taxeMuniAn * (duplex.prixDuplex / h.prix)) / 12 + (derives.taxeScolaireAn * (duplex.prixDuplex / h.prix)) / 12 + duplex.prixDuplex * h.entretienPct / 12;
+          const assurMult = 1 + h.nbLogementsLoues * 0.3;
+          const coutMensuelDuplex = duplex.versementMens + h.condoMens + h.assurMens * assurMult + (derives.taxeMuniAn * (duplex.prixDuplex / h.prix)) / 12 + (derives.taxeScolaireAn * (duplex.prixDuplex / h.prix)) / 12 + duplex.prixDuplex * h.entretienPct / 12;
           const loyerMensuelBrut = h.loyerPercuInitial * h.nbLogementsLoues;
           return (
           <div className="space-y-6">
@@ -1939,13 +2006,23 @@ export default function App() {
             </details>
             <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 ${mode === 'avance' ? 'p-3 bg-blue-50 rounded-xl border border-blue-100' : ''}`}>
               <MoneyCard label="Versement mensuel" value={duplex.versementMens} color="stone" tooltip="Paiement hypothécaire mensuel sur l'immeuble entier (votre logement + les logements loués). Capital + intérêts uniquement." />
-              <MoneyCard label="Coût mensuel total" value={coutMensuelDuplex} color="stone" tooltip={`Versement + charges complètes de l'immeuble (condo, assurance ×1,3, taxes, entretien). Vos loyers perçus (${fmtMoney(loyerMensuelBrut)}/mois) compensent une partie de ces coûts.`} />
+              <MoneyCard label="Coût mensuel total" value={coutMensuelDuplex} color="stone" tooltip={`Versement + charges complètes de l'immeuble (condo, assurance ×${assurMult.toFixed(1)}, taxes, entretien). Vos loyers perçus (${fmtMoney(loyerMensuelBrut)}/mois) compensent une partie de ces coûts.`} />
               {mode === 'avance'
                 ? <MoneyCard label="Cashflow cumulé" value={applyReel(duplex.cashflowCum)} color={duplex.cashflowCum >= 0 ? 'green' : 'red'} tooltip="Total des loyers reçus moins toutes les dépenses (hypothèque, taxes, entretien, assurance, impôt sur revenus locatifs) sur toute la période. Peut être négatif les premières années." />
                 : <MoneyCard label="Équité finale" value={applyReel(duplex.equiteFinale)} color="amber" tooltip="Valeur de l'immeuble après appréciation, moins le solde d'hypothèque restant. Richesse immobilière brute avant frais de vente." />
               }
               <MoneyCard label="Bénéfice net (après vente)" value={applyReel(duplex.beneficeNet)} color={duplex.beneficeNet >= 0 ? 'green' : 'red'} emphasis sublabel={dollarsReels ? "en $ d'aujourd'hui · après impôts" : 'après impôts'} tooltip={`Simulation sur ${h.horizon} ans avec vente de l'immeuble à la fin. Produit de vente net − coût initial − impôt sur gain en capital (portion louée : ${(portionLocative * 100).toFixed(0)} %) + cashflow locatif cumulé.`} />
             </div>
+            <DonutDepenses
+              slices={[
+                { label: 'Versement hypothécaire', value: duplex.versementMens, color: '#1d4ed8' },
+                { label: 'Frais de condo', value: h.condoMens, color: '#93c5fd' },
+                { label: `Assurance (×${assurMult.toFixed(1)})`, value: h.assurMens * assurMult, color: '#bfdbfe' },
+                { label: 'Taxes (muni + sco.)', value: (derives.taxeMuniAn * duplex.prixDuplex / h.prix + derives.taxeScolaireAn * duplex.prixDuplex / h.prix) / 12, color: '#1e3a8a' },
+                { label: 'Entretien estimé', value: duplex.prixDuplex * h.entretienPct / 12, color: '#3b82f6' },
+              ]}
+              note={`Loyers perçus nets : ${Math.round(loyerNetDuplexMens).toLocaleString('fr-CA')} $/mois — compensent une partie de ces coûts.`}
+            />
             <div className="bg-white rounded-lg border border-stone-200 p-6">
               <Slider label="Nombre de logements loués" value={h.nbLogementsLoues} onChange={update('nbLogementsLoues')} min={1} max={5} step={1} help="1 logement loué = duplex, 2 = triplex, 3 = quadruplex, 4 = quintuplex. Plus de logements = plus de levier mais plus de gestion." />
               <Slider label="Loyer mensuel perçu par logement loué" value={h.loyerPercuInitial} onChange={update('loyerPercuInitial')} min={800} max={3500} step={50} format="money" help={`Loyer initial par logement. Total : ${fmtMoney(h.loyerPercuInitial * h.nbLogementsLoues)}/mois. Ce montant augmente chaque année selon le taux d'augmentation — voir Paramètres → Marchés et loyers.`} />
@@ -2020,7 +2097,7 @@ export default function App() {
 
             {/* Cartes revenus */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <MoneyCard label="Loyer perçu/mois (an 1)" value={loyerNetMensuelAn1} color="green" tooltip={`Loyer initial après vacance (${(h.vacancePct*100).toFixed(0)} %) et frais de gestion (${(h.gestionPct*100).toFixed(0)} %). Ce montant augmente de ${(h.augmLoyer*100).toFixed(1)} %/an.`} />
+              <MoneyCard label="Loyer perçu/mois (an 1)" value={loyerNetMensuelAn1} color="green" tooltip={`Loyer initial après logement vacant (${(h.vacancePct*100).toFixed(0)} %) et frais de gestion (${(h.gestionPct*100).toFixed(0)} %). Ce montant augmente de ${(h.augmLoyer*100).toFixed(1)} %/an.`} />
               <MoneyCard label="Cashflow net/mois (an 1)" value={cashflowMensuelAn1} color={cashflowMensuelAn1 >= 0 ? 'green' : 'red'} tooltip="Loyer net moins hypothèque, charges et impôt sur revenus locatifs. Souvent négatif les premières années à Montréal." />
               <MoneyCard label={`Cashflow net/mois (an ${anneeRemboursee})`} value={cashflowMensuelPostRemb} color={cashflowMensuelPostRemb >= 0 ? 'green' : 'amber'} tooltip={`Une fois l'hypothèque remboursée (an ${h.amortissement}), le versement mensuel disparaît — votre cashflow net augmente fortement. Les loyers continuent de croître avec l'indexation.`} />
               <MoneyCard
@@ -2034,6 +2111,17 @@ export default function App() {
                   : `Produit de vente − solde hypothèque − commissions − impôt sur gain en capital (50 % inclusion) − coût initial + cashflow cumulé.`}
               />
             </div>
+
+            <DonutDepenses
+              slices={[
+                { label: 'Votre loyer mensuel', value: h.loyerInitial, color: '#4c1d95' },
+                { label: 'Assurance locataire', value: h.assurLoc, color: '#ddd6fe' },
+                { label: 'Versement bien locatif', value: loc.versementMens, color: '#7c3aed' },
+                { label: 'Condo + assurance bien', value: h.condoMens + h.assurMens * 1.3, color: '#a78bfa' },
+                { label: 'Taxes + entretien bien', value: (derives.taxeMuniAn + derives.taxeScolaireAn) / 12 + h.prix * h.entretienPct / 12, color: '#c4b5fd' },
+              ]}
+              note={`Loyer perçu net : ${Math.round(loyerNetMensuelAn1).toLocaleString('fr-CA')} $/mois — compense une partie des charges du bien.`}
+            />
 
             {locLoyerDeduit && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800">
@@ -2129,6 +2217,21 @@ export default function App() {
                   : `Bénéfice net en ajoutant le loyer cumulé (${fmtMoney(bourse.loyerPayeCum)}) pour comparer sur la même base que « Je loue mon bien ».`}
               />
             </div>
+            {(() => {
+              const coutRPRef = rp.versementMens + h.condoMens + h.assurMens + (derives.taxeMuniAn + derives.taxeScolaireAn) / 12 + h.prix * h.entretienPct / 12;
+              const investMensuel = Math.max(0, coutRPRef - h.loyerInitial - h.assurLoc);
+              const slicesBourse = [
+                { label: 'Loyer mensuel', value: h.loyerInitial, color: '#059669' },
+                { label: 'Assurance locataire', value: h.assurLoc, color: '#6ee7b7' },
+                ...(investMensuel > 0 ? [{ label: 'Investissement mensuel (surplus)', value: investMensuel, color: '#064e3b' }] : []),
+              ];
+              return (
+                <DonutDepenses
+                  slices={slicesBourse}
+                  note={investMensuel > 0 ? `Le surplus de ${Math.round(investMensuel).toLocaleString('fr-CA')} $/mois correspond à ce que coûterait la propriété moins votre loyer — réinvesti chaque mois en bourse.` : 'Votre loyer est supérieur au coût de propriété — aucun surplus mensuel investi cette année-là.'}
+                />
+              );
+            })()}
             <div className="bg-white rounded-lg border border-stone-200 p-6">
               <h3 className="text-lg font-bold text-stone-900 mb-4">Croissance du portefeuille</h3>
               <ResponsiveContainer width="100%" height={360}>
@@ -2439,7 +2542,7 @@ export default function App() {
               <Slider label="Augmentation annuelle du loyer" value={h.augmLoyer} onChange={update('augmLoyer')} min={0} max={0.08} step={0.005} format="pct" sourceKey="talAjustement" help="S'applique aux deux loyers ci-dessus : loyer locataire (Bourse) ET loyer perçu (Multiplex/Locatif). Moyen TAL ~4 %, SCHL Montréal +7,2 % en 2025." />
               {mode === 'avance' && (
                 <>
-                  <Slider label="Vacance + impayés" value={h.vacancePct} onChange={update('vacancePct')} min={0} max={0.15} step={0.01} format="pct" help="% du temps sans locataire. Standard prudent : 5 %." />
+                  <Slider label="Logement vacant + impayés" value={h.vacancePct} onChange={update('vacancePct')} min={0} max={0.15} step={0.01} format="pct" help="% du temps sans locataire. Standard prudent : 5 %." />
                   <Slider label="Frais de gestion locative" value={h.gestionPct} onChange={update('gestionPct')} min={0} max={0.10} step={0.005} format="pct" help="Si vous mandatez un gestionnaire (typ. 8-10 % des loyers)." />
                 </>
               )}
@@ -2449,7 +2552,7 @@ export default function App() {
             <section className="bg-white rounded-lg border border-stone-200 p-5">
               <h3 className="font-semibold text-base text-stone-900 mb-4 pb-2 border-b border-stone-200">Charges annuelles</h3>
               <Slider label="Frais de condo/mois" value={h.condoMens} onChange={update('condoMens')} min={0} max={800} step={25} format="money" help="Frais de copropriété mensuels. 0 si maison." />
-              <Slider label="Assurance habitation propriétaire/mois" value={h.assurMens} onChange={update('assurMens')} min={20} max={200} step={5} format="money" help="Assurance du propriétaire : appliquée dans Résidence principale (×1), Multiplex (×1,3) et Je loue mon bien (×1,3). Le scénario Bourse utilise un champ séparé (assurance locataire, beaucoup moins élevée)." />
+              <Slider label="Assurance habitation propriétaire/mois" value={h.assurMens} onChange={update('assurMens')} min={20} max={200} step={5} format="money" help="Résidence principale : ×1. Multiplex : ×(1 + 0,3 par logement loué). Locatif pur : ×1,3 pour le bien + assurance locataire séparée pour vous. Bourse : assurance locataire uniquement (champ séparé)." />
               <Slider label="Entretien annuel" value={h.entretienPct} onChange={update('entretienPct')} min={0} max={0.03} step={0.0025} format="pct" help="Règle du pouce : 1 %/an de la valeur du bien. Inclut petites réparations." />
               {mode === 'avance' && (
                 <>
