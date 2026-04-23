@@ -1,3 +1,0 @@
-git add .
-git commit -m "correctifs modale intro"
-git push
